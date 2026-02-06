@@ -1,4 +1,3 @@
-<?xml version="1.0" encoding="utf-8"?>
 <!-- This URDF was automatically created by SolidWorks to URDF Exporter! Originally created by Stephen Brawner (brawner@gmail.com) 
      Commit Version: 1.6.0-4-g7f85cfe  Build Version: 1.6.7995.38578
      For more information, please see http://wiki.ros.org/sw_urdf_exporter -->
@@ -54,7 +53,7 @@
     </collision>
   </link>
   <link
-    name="L1">
+    name="L1_link">
     <inertial>
       <origin
         xyz="0.00524529891406311 0.0289722820784871 0.0992791429452917"
@@ -102,7 +101,7 @@
     <parent
       link="base_link" />
     <child
-      link="L1" />
+      link="L1_link" />
     <axis
       xyz="0 0 1" />
     <limit
@@ -112,7 +111,7 @@
       velocity="3" />
   </joint>
   <link
-    name="L2">
+    name="L2_link">
     <inertial>
       <origin
         xyz="-0.0094181617193695 -0.0783879603613605 0.0369429741417731"
@@ -158,9 +157,9 @@
       xyz="0.0234207210610375 0 0.1105"
       rpy="-1.5707963267949 0 0" />
     <parent
-      link="L1" />
+      link="L1_link" />
     <child
-      link="L2" />
+      link="L2_link" />
     <axis
       xyz="0 0 1" />
     <limit
@@ -170,7 +169,7 @@
       velocity="3" />
   </joint>
   <link
-    name="L3">
+    name="L3_link">
     <inertial>
       <origin
         xyz="0.0155509885239593 -0.0191127686426613 -0.00153322577917236"
@@ -216,9 +215,9 @@
       xyz="0 -0.18 0"
       rpy="3.1416 0 -1.5708" />
     <parent
-      link="L2" />
+      link="L2_link" />
     <child
-      link="L3" />
+      link="L3_link" />
     <axis
       xyz="0 0 -1" />
     <limit
@@ -228,7 +227,7 @@
       velocity="3" />
   </joint>
   <link
-    name="L4">
+    name="L4_link">
     <inertial>
       <origin
         xyz="0.000947028430634433 -0.008978947112462 -0.0924798659827059"
@@ -274,9 +273,9 @@
       xyz="0.0435 0 0"
       rpy="1.5707963267949 0 3.14159265358979" />
     <parent
-      link="L3" />
+      link="L3_link" />
     <child
-      link="L4" />
+      link="L4_link" />
     <axis
       xyz="0 0 -1" />
     <limit
@@ -286,7 +285,7 @@
       velocity="3" />
   </joint>
   <link
-    name="L5">
+    name="L5_link">
     <inertial>
       <origin
         xyz="6.7162171684676E-06 -0.00621420980825221 -0.000960871025916146"
@@ -332,9 +331,9 @@
       xyz="0 0 -0.17635"
       rpy="-1.5708 0 0" />
     <parent
-      link="L4" />
+      link="L4_link" />
     <child
-      link="L5" />
+      link="L5_link" />
     <axis
       xyz="0 0 -1" />
     <limit
@@ -344,7 +343,7 @@
       velocity="3" />
   </joint>
   <link
-    name="L6">
+    name="L6_link">
     <inertial>
       <origin
         xyz="0.00632955087228015 -0.000453856352095022 -0.0554441567386594"
@@ -390,9 +389,9 @@
       xyz="0 0 0"
       rpy="1.5708 0 0" />
     <parent
-      link="L5" />
+      link="L5_link" />
     <child
-      link="L6" />
+      link="L6_link" />
     <axis
       xyz="0 0 -1" />
     <limit
@@ -480,33 +479,35 @@
     </actuator> 
   </transmission> 
 
+  <!-- Gazebo ROS Control Plugin - Commented out as it is for ROS 1
   <gazebo> 
     <plugin name="control" filename="libgazebo_ros_control.so"> 
     <robotNamespace>/</robotNamespace> 
     </plugin> 
   </gazebo> 
+  --> 
 
-  <gazebo reference="L1"> 
+  <gazebo reference="L1_link"> 
     <selfCollide>true</selfCollide> 
   </gazebo>
 
-  <gazebo reference="L2"> 
+  <gazebo reference="L2_link"> 
     <selfCollide>true</selfCollide> 
   </gazebo>
 
-  <gazebo reference="L3"> 
+  <gazebo reference="L3_link"> 
     <selfCollide>true</selfCollide> 
   </gazebo>
 
-  <gazebo reference="L4"> 
+  <gazebo reference="L4_link"> 
     <selfCollide>true</selfCollide> 
   </gazebo>
 
-  <gazebo reference="L5"> 
+  <gazebo reference="L5_link"> 
     <selfCollide>true</selfCollide> 
   </gazebo>
 
-  <gazebo reference="L6"> 
+  <gazebo reference="L6_link"> 
     <selfCollide>true</selfCollide> 
   </gazebo>
 
