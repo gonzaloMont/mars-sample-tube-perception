@@ -7,7 +7,9 @@ moveit_simple_controller_manager:
     - arm_group_controller
 
   arm_group_controller:
+    action_ns: follow_joint_trajectory
     type: FollowJointTrajectory
+    default: true
     joints:
       - L1
       - L2
