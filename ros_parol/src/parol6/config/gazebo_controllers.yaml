@@ -1,0 +1,25 @@
+# Controller configuration for PAROL6 Gazebo simulation
+controller_manager:
+  ros__parameters:
+    update_rate: 100  # Hz
+
+    joint_state_broadcaster:
+      type: joint_state_broadcaster/JointStateBroadcaster
+
+    arm_group_controller:
+      type: joint_trajectory_controller/JointTrajectoryController
+
+arm_group_controller:
+  ros__parameters:
+    joints:
+      - L1
+      - L2
+      - L3
+      - L4
+      - L5
+      - L6
+    command_interfaces:
+      - position
+    state_interfaces:
+      - position
+      - velocity

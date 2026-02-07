@@ -3,7 +3,7 @@ project(parol6)
 
 find_package(ament_cmake REQUIRED)
 
-install(DIRECTORY urdf launch meshes
+install(DIRECTORY urdf launch meshes config
   DESTINATION share/${PROJECT_NAME}
 )
 
