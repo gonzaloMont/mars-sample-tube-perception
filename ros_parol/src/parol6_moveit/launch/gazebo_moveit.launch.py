@@ -57,7 +57,7 @@ def generate_launch_description():
     spawn_entity = Node(
         package='gazebo_ros',
         executable='spawn_entity.py',
-        arguments=['-entity', 'parol6', '-topic', 'robot_description'],
+        arguments=['-entity', 'parol6', '-topic', 'robot_description', '-timeout', '120'],
         output='screen',
     )
 
@@ -88,6 +88,7 @@ def generate_launch_description():
             '-file', camera_urdf_path,
             '-x', '0.0', '-y', '0.0', '-z', '1.0',
             '-R', '0.0', '-P', '1.5707963267949', '-Y', '0.0',
+            '-timeout', '120',
         ],
         output='screen',
     )
@@ -161,6 +162,6 @@ def generate_launch_description():
         # Start MoveIt after all controllers are active
         RegisterEventHandler(OnProcessExit(
             target_action=gripper_controller_spawner,
-            on_exit=[move_group_node],  # añadir rviz_node para abrir tmbn rviz: on_exit=[move_group_node, rviz_node]
+            on_exit=[move_group_node, rviz_node],  # añadir rviz_node para abrir tmbn rviz: on_exit=[move_group_node, rviz_node]
         )),
     ])
