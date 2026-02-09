@@ -4,6 +4,9 @@
     <!-- Import original PAROL6 URDF -->
     <xacro:include filename="$(find parol6)/urdf/parol6.urdf" />
 
+    <!-- Import parallel gripper -->
+    <xacro:include filename="$(find parol6)/urdf/gripper.urdf.xacro" />
+
     <!-- ros2_control hardware interface for Gazebo simulation -->
     <ros2_control name="GazeboSystem" type="system">
         <hardware>
@@ -66,6 +69,26 @@
             </command_interface>
             <state_interface name="position">
                 <param name="initial_value">0.0</param>
+            </state_interface>
+            <state_interface name="velocity"/>
+        </joint>
+        <joint name="gripper_joint">
+            <command_interface name="position">
+                <param name="min">0.0</param>
+                <param name="max">0.025</param>
+            </command_interface>
+            <state_interface name="position">
+                <param name="initial_value">0.025</param>
+            </state_interface>
+            <state_interface name="velocity"/>
+        </joint>
+        <joint name="gripper_right_joint">
+            <command_interface name="position">
+                <param name="min">0.0</param>
+                <param name="max">0.025</param>
+            </command_interface>
+            <state_interface name="position">
+                <param name="initial_value">0.025</param>
             </state_interface>
             <state_interface name="velocity"/>
         </joint>

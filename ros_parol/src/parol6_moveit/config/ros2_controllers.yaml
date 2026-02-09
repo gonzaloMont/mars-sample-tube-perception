@@ -6,6 +6,8 @@ controller_manager:
     arm_group_controller:
       type: joint_trajectory_controller/JointTrajectoryController
 
+    gripper_controller:
+      type: joint_trajectory_controller/JointTrajectoryController
 
     joint_state_broadcaster:
       type: joint_state_broadcaster/JointStateBroadcaster
@@ -19,6 +21,17 @@ arm_group_controller:
       - L4
       - L5
       - L6
+    command_interfaces:
+      - position
+    state_interfaces:
+      - position
+      - velocity
+
+gripper_controller:
+  ros__parameters:
+    joints:
+      - gripper_joint
+      - gripper_right_joint
     command_interfaces:
       - position
     state_interfaces:

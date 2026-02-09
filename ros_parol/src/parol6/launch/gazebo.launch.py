@@ -74,6 +74,13 @@ def generate_launch_description():
         output='screen',
     )
 
+    gripper_controller_spawner = Node(
+        package='controller_manager',
+        executable='spawner',
+        arguments=['gripper_controller', '--controller-manager', '/controller_manager'],
+        output='screen',
+    )
+
     # Transformación estática (ROS 2 usa tf2_ros)
     static_tf = Node(
         package='tf2_ros',
@@ -131,6 +138,13 @@ def generate_launch_description():
             event_handler=OnProcessExit(
                 target_action=joint_state_broadcaster_spawner,
                 on_exit=[arm_controller_spawner],
+            )
+        ),
+        # Lanzar gripper_controller después de arm_group_controller
+        RegisterEventHandler(
+            event_handler=OnProcessExit(
+                target_action=arm_controller_spawner,
+                on_exit=[gripper_controller_spawner],
             )
         ),
     ])

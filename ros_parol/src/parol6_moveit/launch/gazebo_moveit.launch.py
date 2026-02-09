@@ -73,6 +73,12 @@ def generate_launch_description():
         arguments=['arm_group_controller', '--controller-manager', '/controller_manager'],
     )
 
+    gripper_controller_spawner = Node(
+        package='controller_manager',
+        executable='spawner',
+        arguments=['gripper_controller', '--controller-manager', '/controller_manager'],
+    )
+
     # --- Overhead camera ---
     spawn_camera = Node(
         package='gazebo_ros',
@@ -148,9 +154,13 @@ def generate_launch_description():
             target_action=joint_state_broadcaster_spawner,
             on_exit=[arm_controller_spawner],
         )),
-        # Start MoveIt after all controllers are active
         RegisterEventHandler(OnProcessExit(
             target_action=arm_controller_spawner,
+            on_exit=[gripper_controller_spawner],
+        )),
+        # Start MoveIt after all controllers are active
+        RegisterEventHandler(OnProcessExit(
+            target_action=gripper_controller_spawner,
             on_exit=[move_group_node],  # añadir rviz_node para abrir tmbn rviz: on_exit=[move_group_node, rviz_node]
         )),
     ])
