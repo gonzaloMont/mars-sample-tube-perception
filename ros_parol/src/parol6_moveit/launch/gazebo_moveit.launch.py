@@ -1,4 +1,5 @@
 import os
+import tempfile
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import IncludeLaunchDescription, RegisterEventHandler
@@ -23,6 +24,18 @@ def generate_launch_description():
     # Process Gazebo xacro (URDF + GazeboSystem + gazebo_ros2_control plugin)
     xacro_file = os.path.join(pkg_parol6, 'urdf', 'parol6_gazebo.xacro')
     robot_description_content = xacro.process_file(xacro_file).toxml()
+
+    # Overhead camera (modelo independiente del robot)
+    camera_xacro = os.path.join(pkg_parol6, 'urdf', 'overhead_camera.urdf.xacro')
+    camera_description = xacro.process_file(camera_xacro).toxml()
+
+    # Escribir a archivo temporal (evita problemas de shell con XML largo)
+    camera_urdf_tmp = tempfile.NamedTemporaryFile(
+        mode='w', suffix='.urdf', prefix='overhead_camera_', delete=False
+    )
+    camera_urdf_tmp.write(camera_description)
+    camera_urdf_tmp.close()
+    camera_urdf_path = camera_urdf_tmp.name
 
     # use_sim_time for all nodes (Gazebo publishes sim clock)
     use_sim_time = {'use_sim_time': True}
@@ -58,6 +71,32 @@ def generate_launch_description():
         package='controller_manager',
         executable='spawner',
         arguments=['arm_group_controller', '--controller-manager', '/controller_manager'],
+    )
+
+    # --- Overhead camera ---
+    spawn_camera = Node(
+        package='gazebo_ros',
+        executable='spawn_entity.py',
+        arguments=[
+            '-entity', 'overhead_camera',
+            '-file', camera_urdf_path,
+            '-x', '0.0', '-y', '0.0', '-z', '1.0',
+            '-R', '0.0', '-P', '1.5707963267949', '-Y', '0.0',
+        ],
+        output='screen',
+    )
+
+    # TF estática world → overhead_camera_link (misma pose que en spawn)
+    # En el robot real se publica con la pose calibrada
+    camera_static_tf = Node(
+        package='tf2_ros',
+        executable='static_transform_publisher',
+        arguments=[
+            '--x', '0.0', '--y', '0.0', '--z', '1.0',
+            '--roll', '0.0', '--pitch', '1.5707963267949', '--yaw', '0.0',
+            '--frame-id', 'world', '--child-frame-id', 'overhead_camera_link',
+        ],
+        output='screen',
     )
 
     # --- MoveIt 2 nodes ---
@@ -98,6 +137,8 @@ def generate_launch_description():
         gazebo,
         robot_state_publisher,
         spawn_entity,
+        spawn_camera,
+        camera_static_tf,
         # Sequential controller startup after entity spawn
         RegisterEventHandler(OnProcessExit(
             target_action=spawn_entity,
