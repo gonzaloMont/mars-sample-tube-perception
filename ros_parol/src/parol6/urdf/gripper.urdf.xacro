@@ -105,15 +105,23 @@
   <gazebo reference="left_finger_link">
     <material>Gazebo/Grey</material>
     <selfCollide>true</selfCollide>
-    <mu1>1.0</mu1>
-    <mu2>1.0</mu2>
+    <mu1>100</mu1>
+    <mu2>100</mu2>
+    <kp>1000000</kp>
+    <kd>1000</kd>
+    <minDepth>0.0</minDepth>
+    <maxVel>0.5</maxVel>
   </gazebo>
 
   <gazebo reference="right_finger_link">
     <material>Gazebo/Grey</material>
     <selfCollide>true</selfCollide>
-    <mu1>1.0</mu1>
-    <mu2>1.0</mu2>
+    <mu1>100</mu1>
+    <mu2>100</mu2>
+    <kp>1000000</kp>
+    <kd>1000</kd>
+    <minDepth>0.0</minDepth>
+    <maxVel>0.5</maxVel>
   </gazebo>
 
 </robot>

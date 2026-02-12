@@ -162,6 +162,6 @@ def generate_launch_description():
         # Start MoveIt after all controllers are active
         RegisterEventHandler(OnProcessExit(
             target_action=gripper_controller_spawner,
-            on_exit=[move_group_node, rviz_node],  # añadir rviz_node para abrir tmbn rviz: on_exit=[move_group_node, rviz_node]
+            on_exit=[move_group_node],  # añadir rviz_node para abrir tmbn rviz: on_exit=[move_group_node, rviz_node]
         )),
     ])
