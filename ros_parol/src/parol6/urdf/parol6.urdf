@@ -479,13 +479,7 @@
     </actuator> 
   </transmission> 
 
-  <!-- Gazebo ROS Control Plugin - Commented out as it is for ROS 1
-  <gazebo> 
-    <plugin name="control" filename="libgazebo_ros_control.so"> 
-    <robotNamespace>/</robotNamespace> 
-    </plugin> 
-  </gazebo> 
-  --> 
+
 
   <gazebo reference="L1_link"> 
     <selfCollide>true</selfCollide> 
