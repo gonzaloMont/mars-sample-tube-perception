@@ -15,6 +15,8 @@ def generate_launch_description():
     pkg_gazebo_ros = get_package_share_directory('gazebo_ros')
     pkg_parol6_moveit = get_package_share_directory('parol6_moveit')
 
+    world_file = os.path.join(pkg_parol6, 'worlds', 'parol6.world')
+
     # GAZEBO_MODEL_PATH for mesh resolution
     if 'GAZEBO_MODEL_PATH' in os.environ:
         os.environ['GAZEBO_MODEL_PATH'] += ':' + os.path.join(pkg_parol6, '..')
@@ -52,6 +54,7 @@ def generate_launch_description():
         PythonLaunchDescriptionSource(
             os.path.join(pkg_gazebo_ros, 'launch', 'gazebo.launch.py')
         ),
+        launch_arguments={'world': world_file}.items(),
     )
 
     spawn_entity = Node(

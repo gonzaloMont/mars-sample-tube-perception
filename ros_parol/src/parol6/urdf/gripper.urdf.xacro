@@ -1,13 +1,7 @@
 <?xml version="1.0"?>
 <!--
-  Parallel gripper for PAROL6 – two prismatic fingers for tube grabbing.
-  Se adjunta al L6_link (flange del end-effector).
-
-  Joints:
-    gripper_joint        – dedo izquierdo, prismatic +Y, 0..0.025 m
-    gripper_right_joint  – dedo derecho,   prismatic -Y, 0..0.025 m (mimic)
-
-  Apertura total = 2 × joint_value  →  0 mm (cerrado) … 50 mm (abierto)
+  Parallel gripper for PAROL6 con SENSORES DE CONTACTO
+  Versión para Gazebo Classic con detección de agarre
 -->
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="gripper">
 
@@ -53,7 +47,7 @@
         <color rgba="0.6 0.6 0.6 1"/>
       </material>
     </visual>
-    <collision>
+    <collision name="left_finger_collision">
       <origin xyz="0 0 -0.02" rpy="0 0 0"/>
       <geometry><box size="0.015 0.005 0.04"/></geometry>
     </collision>
@@ -82,7 +76,7 @@
         <color rgba="0.6 0.6 0.6 1"/>
       </material>
     </visual>
-    <collision>
+    <collision name="right_finger_collision">
       <origin xyz="0 0 -0.02" rpy="0 0 0"/>
       <geometry><box size="0.015 0.005 0.04"/></geometry>
     </collision>
@@ -104,24 +98,85 @@
 
   <gazebo reference="left_finger_link">
     <material>Gazebo/Grey</material>
-    <selfCollide>true</selfCollide>
-    <mu1>100</mu1>
-    <mu2>100</mu2>
-    <kp>1000000</kp>
-    <kd>1000</kd>
-    <minDepth>0.0</minDepth>
-    <maxVel>0.5</maxVel>
+    <selfCollide>false</selfCollide>
+    <mu1>200</mu1>
+    <mu2>200</mu2>
+    <kp>10000000.0</kp>
+    <kd>1.0</kd>
+    <minDepth>0.001</minDepth>
+    <maxVel>0.01</maxVel>
   </gazebo>
 
   <gazebo reference="right_finger_link">
     <material>Gazebo/Grey</material>
-    <selfCollide>true</selfCollide>
-    <mu1>100</mu1>
-    <mu2>100</mu2>
-    <kp>1000000</kp>
-    <kd>1000</kd>
-    <minDepth>0.0</minDepth>
-    <maxVel>0.5</maxVel>
+    <selfCollide>false</selfCollide>
+    <mu1>200</mu1>
+    <mu2>200</mu2>
+    <kp>10000000.0</kp>
+    <kd>1.0</kd>
+    <minDepth>0.001</minDepth>
+    <maxVel>0.01</maxVel>
   </gazebo>
 
+  <!-- ══════════ SENSORES DE CONTACTO ══════════ -->
+  <!-- 
+  <gazebo reference="left_finger_link">
+    <sensor name="left_finger_contact" type="contact">
+      <update_rate>100</update_rate>
+      <contact>
+        <collision>left_finger_link_fixed_joint_lump__left_finger_collision_collision</collision>
+      </contact>
+      <plugin name="left_finger_contact_plugin" filename="libgazebo_ros_bumper.so">
+        <bumperTopicName>left_finger_contact</bumperTopicName>
+        <frameName>left_finger_link</frameName>
+      </plugin>
+    </sensor>
+  </gazebo>
+
+  <gazebo reference="right_finger_link">
+    <sensor name="right_finger_contact" type="contact">
+      <update_rate>100</update_rate>
+      <contact>
+        <collision>right_finger_link_fixed_joint_lump__right_finger_collision_collision</collision>
+      </contact>
+      <plugin name="right_finger_contact_plugin" filename="libgazebo_ros_bumper.so">
+        <bumperTopicName>right_finger_contact</bumperTopicName>
+        <frameName>right_finger_link</frameName>
+      </plugin>
+    </sensor>
+  </gazebo>
+  -->
+  <gazebo reference="left_finger_link">
+    <sensor name="left_finger_contact" type="contact">
+      <update_rate>100</update_rate>
+      <always_on>true</always_on> <contact>
+        <collision>left_finger_link_fixed_joint_lump__left_finger_collision_collision</collision>
+      </contact>
+      
+      <plugin name="left_finger_contact_plugin" filename="libgazebo_ros_bumper.so">
+        <ros>
+          <remapping>bumper_states:=/left_finger_contact</remapping>
+        </ros>
+        <frame_name>left_finger_link</frame_name>
+      </plugin>
+    </sensor>
+  </gazebo>
+
+  <gazebo reference="right_finger_link">
+    <sensor name="right_finger_contact" type="contact">
+      <update_rate>100</update_rate>
+      <always_on>true</always_on>
+      <contact>
+        <collision>right_finger_link_fixed_joint_lump__right_finger_collision_collision</collision>
+      </contact>
+      
+      <plugin name="right_finger_contact_plugin" filename="libgazebo_ros_bumper.so">
+        <ros>
+          <remapping>bumper_states:=/right_finger_contact</remapping>
+        </ros>
+        <frame_name>right_finger_link</frame_name>
+      </plugin>
+    </sensor>
+  </gazebo>
+  
 </robot>
