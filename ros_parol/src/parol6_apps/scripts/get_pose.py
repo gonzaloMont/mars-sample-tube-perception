@@ -1,3 +1,8 @@
+#!/usr/bin/env python3
+''' 
+Suscribirse a TF para obtener la pose actual del efector final (L6_link) respecto a base_link, 
+e imprimirla por consola.'''
+
 from tf2_ros import Buffer, TransformListener
 import rclpy
 from rclpy.node import Node

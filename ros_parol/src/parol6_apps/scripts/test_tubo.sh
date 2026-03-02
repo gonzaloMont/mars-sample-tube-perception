@@ -5,8 +5,11 @@ set -euo pipefail
 # Ejecutar: ./test_tubo.sh
 
 
+# Obtener la ruta correcta al tube.sdf desde el paquete instalado
+TUBE_SDF="$(ros2 pkg prefix --share parol6_gazebo)/models/tube.sdf"
+
 # Spawnear el tubo en Gazebo
-ros2 run gazebo_ros spawn_entity.py -file src/PAROL6/ros_parol/src/parol6/models/tube.sdf -entity tube -x 0.32 -y 0.0 -z 0.03 -P 1.5708
+ros2 run gazebo_ros spawn_entity.py -file "$TUBE_SDF" -entity tube -x 0.32 -y 0.0 -z 0.03 -P 1.5708
 
 sleep 1
 

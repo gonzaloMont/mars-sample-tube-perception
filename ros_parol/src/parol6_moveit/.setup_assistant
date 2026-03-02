@@ -1,6 +1,6 @@
 moveit_setup_assistant_config:
   urdf:
-    package: parol6
+    package: parol6_description
     relative_path: urdf/parol6.urdf
   srdf:
     relative_path: config/parol6.srdf

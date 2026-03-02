@@ -3,10 +3,10 @@
     <xacro:arg name="initial_positions_file" default="initial_positions.yaml" />
 
     <!-- Import parol6 urdf file -->
-    <xacro:include filename="$(find parol6)/urdf/parol6.urdf" />
+    <xacro:include filename="$(find parol6_description)/urdf/parol6.urdf" />
 
     <!-- Import parallel gripper -->
-    <xacro:include filename="$(find parol6)/urdf/gripper.urdf.xacro" />
+    <xacro:include filename="$(find parol6_description)/urdf/gripper.urdf.xacro" />
 
     <!-- Import control_xacro -->
     <xacro:include filename="parol6.ros2_control.xacro" />

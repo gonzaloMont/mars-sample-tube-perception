@@ -11,24 +11,25 @@ from moveit_configs_utils import MoveItConfigsBuilder
 
 
 def generate_launch_description():
-    pkg_parol6 = get_package_share_directory('parol6')
+    pkg_parol6_desc = get_package_share_directory('parol6_description')
+    pkg_parol6_gazebo = get_package_share_directory('parol6_gazebo')
     pkg_gazebo_ros = get_package_share_directory('gazebo_ros')
     pkg_parol6_moveit = get_package_share_directory('parol6_moveit')
 
-    world_file = os.path.join(pkg_parol6, 'worlds', 'parol6.world')
+    world_file = os.path.join(pkg_parol6_gazebo, 'worlds', 'parol6.world')
 
     # GAZEBO_MODEL_PATH for mesh resolution
     if 'GAZEBO_MODEL_PATH' in os.environ:
-        os.environ['GAZEBO_MODEL_PATH'] += ':' + os.path.join(pkg_parol6, '..')
+        os.environ['GAZEBO_MODEL_PATH'] += ':' + os.path.join(pkg_parol6_desc, '..')
     else:
-        os.environ['GAZEBO_MODEL_PATH'] = os.path.join(pkg_parol6, '..')
+        os.environ['GAZEBO_MODEL_PATH'] = os.path.join(pkg_parol6_desc, '..')
 
     # Process Gazebo xacro (URDF + GazeboSystem + gazebo_ros2_control plugin)
-    xacro_file = os.path.join(pkg_parol6, 'urdf', 'parol6_gazebo.xacro')
+    xacro_file = os.path.join(pkg_parol6_desc, 'urdf', 'parol6_gazebo.xacro')
     robot_description_content = xacro.process_file(xacro_file).toxml()
 
     # Overhead camera (modelo independiente del robot)
-    camera_xacro = os.path.join(pkg_parol6, 'urdf', 'overhead_camera.urdf.xacro')
+    camera_xacro = os.path.join(pkg_parol6_desc, 'urdf', 'overhead_camera.urdf.xacro')
     camera_description = xacro.process_file(camera_xacro).toxml()
 
     # Escribir a archivo temporal (evita problemas de shell con XML largo)
