@@ -23,16 +23,15 @@ endif()
 
 # instalar los programas como ejecutables 
 install(PROGRAMS
-    scripts/get_pose.py
-    scripts/pose_ik_subscriber.py
-    scripts/test_moveit.py
-    scripts/test_moveit_cartesian.py
-    scripts/udp_pose_receiver.py
+    scripts/nodos/get_pose.py
+    scripts/nodos/pose_ik_subscriber.py
+    scripts/demos/test_moveit.py
+    scripts/demos/test_moveit_cartesian.py
     DESTINATION lib/${PROJECT_NAME}
 )
 
 # El script bash se instala en share (no necesita ser ejecutable por ros2 run)
-install(FILES scripts/test_tubo.sh
+install(FILES scripts/demos/test_tubo.sh
     DESTINATION share/${PROJECT_NAME}/scripts
 )
 
