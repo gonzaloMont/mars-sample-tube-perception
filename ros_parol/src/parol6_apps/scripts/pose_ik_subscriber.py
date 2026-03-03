@@ -50,7 +50,7 @@ class PoseIKSubscriber(Node):
         self._ik_client.wait_for_service()
         self.get_logger().info('Esperando action server /move_action...')
         self._action_client.wait_for_server()
-        self.get_logger().info('Listo. Esperando poses en /pose_target_udp...')
+        self.get_logger().info('Listo. Esperando poses en /pose_target_cuaterniones...')
 
     def _pose_cb(self, msg: Pose):
         self.get_logger().info(

@@ -2,9 +2,11 @@ import os
 import tempfile
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import IncludeLaunchDescription, RegisterEventHandler
+from launch.actions import IncludeLaunchDescription, RegisterEventHandler, DeclareLaunchArgument
+from launch.conditions import IfCondition
 from launch.event_handlers import OnProcessExit
 from launch.launch_description_sources import PythonLaunchDescriptionSource
+from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 import xacro
 from moveit_configs_utils import MoveItConfigsBuilder
@@ -17,6 +19,20 @@ def generate_launch_description():
     pkg_parol6_moveit = get_package_share_directory('parol6_moveit')
 
     world_file = os.path.join(pkg_parol6_gazebo, 'worlds', 'parol6.world')
+
+
+    # ── Argumentos configurables en tiempo de lanzamiento ──────────────────
+    # Uso:
+    #   ros2 launch parol6_gazebo gazebo_moveit.launch.py            # sin RViz, sin gripper
+    #   ros2 launch parol6_gazebo gazebo_moveit.launch.py rviz:=true
+    #   ros2 launch parol6_gazebo gazebo_moveit.launch.py gripper:=true
+    #   ros2 launch parol6_gazebo gazebo_moveit.launch.py rviz:=true gripper:=true
+    rviz_arg    = DeclareLaunchArgument('rviz',    default_value='false', description='Lanzar RViz con la configuración de MoveIt')
+    gripper_arg = DeclareLaunchArgument('gripper', default_value='false', description='Lanzar el nodo de gripper virtual')
+
+    use_rviz    = LaunchConfiguration('rviz')
+    use_gripper = LaunchConfiguration('gripper')
+
 
     # GAZEBO_MODEL_PATH for mesh resolution
     if 'GAZEBO_MODEL_PATH' in os.environ:
@@ -43,7 +59,7 @@ def generate_launch_description():
     # use_sim_time for all nodes (Gazebo publishes sim clock)
     use_sim_time = {'use_sim_time': True}
 
-    # --- Gazebo simulation nodes ---
+    # --- Nodos de simulación ---
     robot_state_publisher = Node(
         package='robot_state_publisher',
         executable='robot_state_publisher',
@@ -83,14 +99,14 @@ def generate_launch_description():
         arguments=['gripper_controller', '--controller-manager', '/controller_manager'],
     )
 
-    # --- Overhead camera ---
+    # --- Cámara cenital ---
     spawn_camera = Node(
         package='gazebo_ros',
         executable='spawn_entity.py',
         arguments=[
             '-entity', 'overhead_camera',
             '-file', camera_urdf_path,
-            '-x', '0.0', '-y', '0.0', '-z', '1.0',
+            '-x', '0.2', '-y', '0.0', '-z', '0.75',
             '-R', '0.0', '-P', '1.5707963267949', '-Y', '0.0',
             '-timeout', '120',
         ],
@@ -103,7 +119,7 @@ def generate_launch_description():
         package='tf2_ros',
         executable='static_transform_publisher',
         arguments=[
-            '--x', '0.0', '--y', '0.0', '--z', '1.0',
+            '--x', '0.2', '--y', '0.0', '--z', '0.75',
             '--roll', '0.0', '--pitch', '1.5707963267949', '--yaw', '0.0',
             '--frame-id', 'world', '--child-frame-id', 'overhead_camera_link',
         ],
@@ -129,10 +145,12 @@ def generate_launch_description():
         parameters=[moveit_config.to_dict(), use_sim_time],
     )
 
+    # ── RViz (opcional) ─────────────────────────────────────────────────────
     rviz_node = Node(
         package='rviz2',
         executable='rviz2',
         output='screen',
+        condition=IfCondition(use_rviz),
         arguments=['-d', os.path.join(pkg_parol6_moveit, 'config', 'moveit.rviz')],
         parameters=[
             moveit_config.robot_description,
@@ -144,13 +162,25 @@ def generate_launch_description():
         ],
     )
 
+    # ── Gripper virtual (opcional) ──────────────────────────────────────────
+    gripper_node = Node(
+        package='parol6_controllers',
+        executable='virtual_gripper_node.py',
+        output='screen',
+        condition=IfCondition(use_gripper),
+    )
+
     return LaunchDescription([
+        rviz_arg,
+        gripper_arg,
+
         gazebo,
         robot_state_publisher,
         spawn_entity,
         spawn_camera,
         camera_static_tf,
-        # Sequential controller startup after entity spawn
+
+        # Arranque secuencial de controladores tras el spawn del robot
         RegisterEventHandler(OnProcessExit(
             target_action=spawn_entity,
             on_exit=[joint_state_broadcaster_spawner],
@@ -163,9 +193,9 @@ def generate_launch_description():
             target_action=arm_controller_spawner,
             on_exit=[gripper_controller_spawner],
         )),
-        # Start MoveIt after all controllers are active
+        # MoveIt + RViz + gripper arrancan cuando todos los controladores están activos
         RegisterEventHandler(OnProcessExit(
             target_action=gripper_controller_spawner,
-            on_exit=[move_group_node],  # añadir rviz_node para abrir tmbn rviz: on_exit=[move_group_node, rviz_node]
+            on_exit=[move_group_node, rviz_node, gripper_node],
         )),
     ])

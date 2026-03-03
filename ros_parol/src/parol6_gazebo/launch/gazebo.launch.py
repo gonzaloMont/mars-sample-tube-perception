@@ -105,7 +105,7 @@ def generate_launch_description():
         arguments=[
             '-entity', 'overhead_camera',
             '-file', camera_urdf_path,
-            '-x', '0.0', '-y', '0.0', '-z', '1.0',
+            '-x', '0.0', '-y', '0.0', '-z', '0.75',
             '-R', '0.0', '-P', '1.5707963267949', '-Y', '0.0',
             '-timeout', '120',
         ],
@@ -118,7 +118,7 @@ def generate_launch_description():
         package='tf2_ros',
         executable='static_transform_publisher',
         arguments=[
-            '--x', '0.0', '--y', '0.0', '--z', '1.0',
+            '--x', '0.0', '--y', '0.0', '--z', '0.75',
             '--roll', '0.0', '--pitch', '1.5707963267949', '--yaw', '0.0',
             '--frame-id', 'world', '--child-frame-id', 'overhead_camera_link',
         ],
