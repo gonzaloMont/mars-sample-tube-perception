@@ -1,0 +1,39 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>parol6_vision</name>
+  <version>0.0.0</version>
+  <description>
+    Pipeline de visión para el robot PAROL6. Lee la imagen de la cámara cenital,
+    detecta objetos con YOLO y estima la pose objetivo para el brazo.
+  </description>
+  <maintainer email="montanagonzalo73@gmail.com">gonzalomontanagomez</maintainer>
+  <license>TODO: License declaration</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <!-- Infraestructura ROS 2 -->
+  <exec_depend>rclpy</exec_depend>
+  
+  <!-- Mensajes -->
+  <exec_depend>sensor_msgs</exec_depend>
+  <exec_depend>geometry_msgs</exec_depend>
+  <exec_depend>vision_msgs</exec_depend>
+   
+  <!-- Visión -->
+  <exec_depend>cv_bridge</exec_depend>
+  <exec_depend>python3-opencv</exec_depend>
+
+  <!-- YOLO -->
+  <exec_depend>ament_index_python</exec_depend>
+  <exec_depend>python3-numpy</exec_depend>
+  <exec_depend>python3-ultralytics</exec_depend>
+
+
+  <test_depend>ament_lint_auto</test_depend>
+  <test_depend>ament_lint_common</test_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>
