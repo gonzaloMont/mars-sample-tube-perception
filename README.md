@@ -15,7 +15,8 @@ This repository provides ROS 2 MoveIt 2 integration for the [PAROL6](https://git
 | `parol6_gazebo` | ament_cmake | Gazebo worlds, SDF models, controller config and simulation launch files |
 | `parol6_moveit` | ament_cmake | MoveIt 2 configuration (SRDF, kinematics, planners, launch files) |
 | `parol6_controllers` | ament_cmake | Control nodes (virtual gripper with contact detection) |
-| `parol6_apps` | ament_cmake | User scripts: IK subscriber, MoveIt tests, UDP bridge, pose getter |
+| `parol6_apps` | ament_cmake | User scripts: IK subscriber, MoveIt tests, pose getter |
+| `parol6_vision` | ament_cmake | Vision processing and camera integration | 
 
 
 ---
