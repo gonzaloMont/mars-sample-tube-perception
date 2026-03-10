@@ -31,7 +31,10 @@ install(PROGRAMS
 )
 
 # El script bash se instala en share (no necesita ser ejecutable por ros2 run)
-install(FILES scripts/demos/test_tubo.sh
+install(FILES 
+    scripts/demos/test_tubo.sh
+    scripts/demos/spawn_object.sh
+    scripts/demos/spawn_all_objects.sh
     DESTINATION share/${PROJECT_NAME}/scripts
 )
 

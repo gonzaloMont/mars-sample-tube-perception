@@ -4,13 +4,13 @@ set -euo pipefail
 # Script para spawnear objetos simples en Gazebo.
 #
 # Uso:
-#   ./spawn_objetct.sh <modelo> [x y z R P Y [entidad [r g b a]]]
+#   ./spawn_.sh <modelo> [x y z R P Y [entidad [r g b a]]]
 #
 # Ejemplos:
-#   ./spawn_objetct.sh tube
-#   ./spawn_objetct.sh box_small 0.32 0.00 0.02 0 0 0
-#   ./spawn_objetct.sh tube_green 0.25 0.10 0.03 0 1.5708 0 mi_tubo_verde
-#   ./spawn_objetct.sh box_rect 0.30 0.10 0.01 0 0 0 caja_verde 0.1 0.8 0.1 1.0
+#   ./spawn_object.sh tube
+#   ./spawn_object.sh box_small 0.32 0.00 0.02 0 0 0
+#   ./spawn_object.sh tube_green 0.25 0.10 0.03 0 1.5708 0 mi_tubo_verde
+#   ./spawn_object.sh box_rect 0.30 0.10 0.01 0 0 0 caja_verde 0.1 0.8 0.1 1.0
 
 if [[ "${1:-}" == "" ]]; then
   echo "Uso: $0 <modelo> [x y z R P Y [entidad [r g b a]]]"
