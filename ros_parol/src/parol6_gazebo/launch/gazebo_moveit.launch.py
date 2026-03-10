@@ -17,6 +17,7 @@ def generate_launch_description():
     pkg_parol6_gazebo = get_package_share_directory('parol6_gazebo')
     pkg_gazebo_ros = get_package_share_directory('gazebo_ros')
     pkg_parol6_moveit = get_package_share_directory('parol6_moveit')
+    pkg_parol6_apps = get_package_share_directory('parol6_apps')
 
     world_file = os.path.join(pkg_parol6_gazebo, 'worlds', 'parol6.world')
 
@@ -29,9 +30,11 @@ def generate_launch_description():
     #   ros2 launch parol6_gazebo gazebo_moveit.launch.py rviz:=true gripper:=true
     rviz_arg    = DeclareLaunchArgument('rviz',    default_value='false', description='Lanzar RViz con la configuración de MoveIt')
     gripper_arg = DeclareLaunchArgument('gripper', default_value='false', description='Lanzar el nodo de gripper virtual')
+    ik_arg      = DeclareLaunchArgument('ik',      default_value='false', description='Lanzar el nodo de cinemática inversa')
 
     use_rviz    = LaunchConfiguration('rviz')
     use_gripper = LaunchConfiguration('gripper')
+    use_ik      = LaunchConfiguration('ik')
 
 
     # GAZEBO_MODEL_PATH for mesh resolution
@@ -170,9 +173,19 @@ def generate_launch_description():
         condition=IfCondition(use_gripper),
     )
 
+    # ── Cinemática inversa (opcional) ─────────────────────────────────────
+    ik_node = Node(
+        package='parol6_apps',
+        executable='pose_ik_subscriber.py',
+        output='screen',
+        condition=IfCondition(use_ik),
+        parameters=[use_sim_time],
+    )
+
     return LaunchDescription([
         rviz_arg,
         gripper_arg,
+        ik_arg,
 
         gazebo,
         robot_state_publisher,
@@ -196,6 +209,6 @@ def generate_launch_description():
         # MoveIt + RViz + gripper arrancan cuando todos los controladores están activos
         RegisterEventHandler(OnProcessExit(
             target_action=gripper_controller_spawner,
-            on_exit=[move_group_node, rviz_node, gripper_node],
+            on_exit=[move_group_node, rviz_node, gripper_node, ik_node],
         )),
     ])
