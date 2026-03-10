@@ -22,8 +22,8 @@ class EEPositionListener(Node):
             pos = trans.transform.translation
             ori = trans.transform.rotation
             print(
-                f'Posición: x={pos.x:.3f}, y={pos.y:.3f}, z={pos.z:.3f} \n' 
-                f'Orientación (cuaternion): x={ori.x:.3f}, y={ori.y:.3f}, z={ori.z:.3f}, w={ori.w:.3f} \n'
+                f'Posición: x={pos.x:.5f}, y={pos.y:.5f}, z={pos.z:.5f} \n' 
+                f'Orientación (cuaternion): x={ori.x:.5f}, y={ori.y:.5f}, z={ori.z:.5f}, w={ori.w:.5f} \n'
             )
             time.sleep(2)  # Para evitar imprimir demasiado rápido
         except Exception as e:

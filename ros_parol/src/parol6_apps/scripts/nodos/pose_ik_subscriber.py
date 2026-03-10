@@ -3,25 +3,25 @@
 pose_ik_subscriber.py
 
 Recibe una Pose absoluta (respecto a base_link), resuelve la cinemática inversa
-con el servicio /compute_ik de MoveIt, y ejecuta el movimiento mediante
-JointConstraints (igual que move_to_joints en test_moveit.py).
+con el servicio /compute_ik de MoveIt, y ejecuta el movimiento.
 
-Esto garantiza que una misma pose siempre produzca el mismo resultado,
-independientemente de donde esté el robot en ese momento.
+Publica en /robot_motion_status:
+  'done'  → movimiento completado con éxito
+  'error' → IK fallida o movimiento rechazado
 """
 
 import rclpy
 from rclpy.node import Node
 from rclpy.action import ActionClient
-from geometry_msgs.msg import Pose
+from geometry_msgs.msg import Pose, PoseStamped
 from sensor_msgs.msg import JointState
+from std_msgs.msg import String
 from moveit_msgs.action import MoveGroup
 from moveit_msgs.msg import (
     MotionPlanRequest,
     PlanningOptions,
     Constraints,
     JointConstraint,
-    RobotState,
     PositionIKRequest,
 )
 from moveit_msgs.srv import GetPositionIK
@@ -43,14 +43,23 @@ class PoseIKSubscriber(Node):
         # Cliente para ejecutar movimiento por joints
         self._action_client = ActionClient(self, MoveGroup, '/move_action')
 
-        # Suscripción a la pose objetivo
+        # Suscripciónes
         self.create_subscription(Pose, '/pose_target_cuaterniones', self._pose_cb, 10)
+
+        # Publicador de estado del movimiento
+        self.pub_status = self.create_publisher(String, '/robot_motion_status', 10)
 
         self.get_logger().info('Esperando servicio /compute_ik...')
         self._ik_client.wait_for_service()
         self.get_logger().info('Esperando action server /move_action...')
         self._action_client.wait_for_server()
         self.get_logger().info('Listo. Esperando poses en /pose_target_cuaterniones...')
+
+    def _publish_status(self, status: str):
+        msg = String()
+        msg.data = status
+        self.pub_status.publish(msg)
+        self.get_logger().info(f'Estado publicado: {status}')
 
     def _pose_cb(self, msg: Pose):
         self.get_logger().info(
@@ -61,9 +70,9 @@ class PoseIKSubscriber(Node):
     def _resolve_ik_and_move(self, pose: Pose):
         # Construir la petición de IK
         # Cambiar posiciones x, z y orientación x para que coincida con la del robot real
-        pose.position.x -= 0.062
-        pose.position.z += 0.046
-        pose.orientation.x = -pose.orientation.x
+        #pose.position.x -= 0.062
+        #pose.position.z += 0.046
+        #pose.orientation.x = -pose.orientation.x
 
         ik_request = PositionIKRequest()
         ik_request.group_name = GROUP_NAME
@@ -72,7 +81,6 @@ class PoseIKSubscriber(Node):
         ik_request.timeout.sec = 5
 
         # Pose objetivo en el frame del robot
-        from geometry_msgs.msg import PoseStamped
         pose_stamped = PoseStamped()
         pose_stamped.header.frame_id = BASE_FRAME
         pose_stamped.header.stamp = self.get_clock().now().to_msg()
@@ -92,6 +100,7 @@ class PoseIKSubscriber(Node):
 
         if error_code != 1:  # 1 = SUCCESS
             self.get_logger().error(f'IK fallida (código: {error_code}). Pose inalcanzable.')
+            self._publish_status('error')
             return
 
         # Extraer las posiciones de joints de la solución IK
@@ -120,7 +129,6 @@ class PoseIKSubscriber(Node):
         
         constraints = Constraints()
         for name, position in zip(JOINT_NAMES, target_positions):
-
             jc = JointConstraint()
             jc.joint_name = name
             jc.position = position
@@ -143,6 +151,7 @@ class PoseIKSubscriber(Node):
         goal_handle = future.result()
         if not goal_handle.accepted:
             self.get_logger().error('Movimiento rechazado por move_group')
+            self._publish_status('error')
             return
         self.get_logger().info('Movimiento aceptado, ejecutando...')
         result_future = goal_handle.get_result_async()
@@ -151,10 +160,11 @@ class PoseIKSubscriber(Node):
     def _result_cb(self, future):
         result = future.result().result
         if result.error_code.val == 1:
-            self.get_logger().info('Movimiento completado OK')
+            self.get_logger().info('Movimiento completado OK.')
+            self._publish_status('done')
         else:
-            self.get_logger().error(f'Movimiento fallido (código: {result.error_code.val})')
-
+            self.get_logger().error(f'Movimiento fallido (código: {result.error_code.val}).')
+            self._publish_status('error')
 
 def main():
     rclpy.init()

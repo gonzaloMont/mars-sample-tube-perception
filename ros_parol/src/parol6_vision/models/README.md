@@ -2,7 +2,7 @@
 
 Descargar y colocar en esta carpeta:
 
-- `yoloe-26l-seg.pt` — se descarga automáticamente con ultralytics la primera vez
+- `yoloe-26n-seg.pt` — se descarga automáticamente con ultralytics la primera vez
   que se ejecuta el nodo, o manualmente:
   pip install ultralytics && yolo export model=yoloe-26l-seg.pt
 

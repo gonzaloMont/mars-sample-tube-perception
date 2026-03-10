@@ -31,7 +31,7 @@ class YoloDetectorNode(Node):
         # ── Parámetros ──────────────────────────────────────────────────────
         self.declare_parameter('camera_topic',   '/overhead_camera/overhead_cam/image_raw')
         self.declare_parameter('conf_threshold', 0.25)
-        self.declare_parameter('model_path',     'yoloe-26l-seg.pt')
+        self.declare_parameter('model_path',     'yoloe-26n-seg.pt')
         self.declare_parameter('target_classes', ['red tube'])
 
         self.camera_topic   = self.get_parameter('camera_topic').value
