@@ -15,8 +15,11 @@ import rclpy
 from ament_index_python.packages import get_package_share_directory
 from cv_bridge import CvBridge, CvBridgeError
 from rclpy.node import Node
+from sensor_msgs import msg
 from sensor_msgs.msg import Image
+from std_msgs.msg import String
 from ultralytics import YOLOE
+from vision_msgs import msg
 from vision_msgs.msg import (
     Detection2D,
     Detection2DArray,
@@ -74,10 +77,17 @@ class YoloDetectorNode(Node):
             
 
         # ── Suscriptor ──────────────────────────────────────────────────────
-        self.subscription = self.create_subscription(
+        self.subscription_camera = self.create_subscription(
             Image,
             self.camera_topic,
             self.image_callback,
+            10,
+        )
+
+        self.subscription_activate = self.create_subscription(
+            String,
+            '/vision/activate',
+            self.activate_callback,
             10,
         )
 
@@ -98,13 +108,30 @@ class YoloDetectorNode(Node):
             10,
         )
 
+        # ── Estado de activación ────────────────────────────────────────
+        self.is_active = False
+
         self.get_logger().info(
             f'YoloDetectorNode iniciado. Suscrito a {self.camera_topic}.'
         )
 
     # ────────────────────────────────────────────────────────────────────────
 
+    def activate_callback(self, msg: String):
+        """Activa o desactiva el procesamiento de imágenes."""
+        if msg.data == 'activate':
+            self.is_active = True
+            self.get_logger().info('Procesamiento de imágenes ACTIVADO.')
+        elif msg.data == 'deactivate':
+            self.is_active = False
+            self.get_logger().info('Procesamiento de imágenes DESACTIVADO.')
+
+
     def image_callback(self, msg: Image) -> None:
+        # Solo procesar si está activado
+        if not self.is_active:
+            return
+
         # Convertir imagen ROS → OpenCV
         try:
             frame = self.bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')

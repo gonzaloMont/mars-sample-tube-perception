@@ -25,6 +25,7 @@ endif()
 install(PROGRAMS
     scripts/nodos/get_pose.py
     scripts/nodos/pose_ik_subscriber.py
+    scripts/nodos/pick_and_place_orchestrator.py
     scripts/demos/test_moveit.py
     scripts/demos/test_moveit_cartesian.py
     DESTINATION lib/${PROJECT_NAME}

@@ -10,14 +10,23 @@
   <buildtool_depend>ament_cmake</buildtool_depend>
   
   <exec_depend>rclpy</exec_depend>
+
+  <!-- Messages -->
   <exec_depend>geometry_msgs</exec_depend>
   <exec_depend>sensor_msgs</exec_depend>
   <exec_depend>shape_msgs</exec_depend>
   <exec_depend>std_msgs</exec_depend>
+  <exec_depend>vision_msgs</exec_depend>
   <exec_depend>moveit_msgs</exec_depend>
+  
   <exec_depend>tf2_ros</exec_depend>
   <exec_depend>parol6_description</exec_depend>
   <exec_depend>parol6_moveit</exec_depend>
+
+  <exec_depend>cv_bridge</exec_depend>
+  <exec_depend>python3-opencv</exec_depend>
+  <exec_depend>python3-numpy</exec_depend>
+  <exec_depend>ament_index_python</exec_depend>
 
 
   <export>
