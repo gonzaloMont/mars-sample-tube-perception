@@ -279,7 +279,7 @@ class PickAndPlaceOrchestrator(Node):
             self._move_arm_to_pose_async(self.deposit_x, self.deposit_y, self.deposit_z)
 
         elif new_state == HOME:
-            self._move_arm_to_pose_async(0.2, 0.0, self.z_approach)
+            self._move_arm_to_pose_async(0.2, 0.0, 0.33)
 
         elif new_state == ERROR:
             self.get_logger().error('Estado ERROR — misión detenida.')
