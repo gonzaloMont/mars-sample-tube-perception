@@ -139,18 +139,26 @@ class VirtualGripperNode(Node):
             self.get_logger().warn(f'TF no disponible: {e}')
             return None, None
     
+    def _extract_object_name(self, state):
+        """Extrae el nombre del objeto de un estado de contacto.
+        Prueba collision1_name y collision2_name, devuelve el que no sea 'parol6'."""
+        for cname in (state.collision1_name, state.collision2_name):
+            if '::' in cname:
+                name = cname.split('::')[0]
+                if name != 'parol6':
+                    return name
+        return None
+
     def left_contact_callback(self, msg):
         """Callback para contactos del dedo izquierdo"""
         if len(msg.states) > 0:
             self.left_contact = True
             self.last_contact_time = time.time()
 
-            if not self.attached_object and len(msg.states[0].collision1_name) > 0:
-                collision_name = msg.states[0].collision1_name
-                if '::' in collision_name:
-                    object_name = collision_name.split('::')[0]
-                    if object_name != 'parol6':
-                        self.check_and_attach(object_name)
+            if not self.attached_object:
+                object_name = self._extract_object_name(msg.states[0])
+                if object_name:
+                    self.check_and_attach(object_name)
         else:
             self.left_contact = False
     
@@ -160,12 +168,10 @@ class VirtualGripperNode(Node):
             self.right_contact = True
             self.last_contact_time = time.time()
 
-            if not self.attached_object and len(msg.states[0].collision1_name) > 0:
-                collision_name = msg.states[0].collision1_name                
-                if '::' in collision_name:
-                    object_name = collision_name.split('::')[0]
-                    if object_name != 'parol6':
-                        self.check_and_attach(object_name)
+            if not self.attached_object:
+                object_name = self._extract_object_name(msg.states[0])
+                if object_name:
+                    self.check_and_attach(object_name)
         else:
             self.right_contact = False
     

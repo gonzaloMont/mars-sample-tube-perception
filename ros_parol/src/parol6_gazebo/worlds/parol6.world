@@ -10,7 +10,9 @@
       
       <ode>
         <solver>
-          <type>quick</type> <iters>50</iters>  </solver>
+          <type>quick</type>
+          <iters>150</iters>
+        </solver>
       </ode>
     </physics>
 
