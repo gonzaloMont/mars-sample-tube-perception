@@ -54,7 +54,7 @@ class VirtualGripperNode(Node):
         # Parámetros configurables
         self.declare_parameter('gripper_closed_threshold', 0.011)  # Posición considerada "cerrado"
         self.declare_parameter('gripper_open_threshold', 0.012)    # Posición considerada "abierto"
-        self.declare_parameter('min_contact_time', 0.2)            # Tiempo mínimo de contacto
+        self.declare_parameter('min_contact_time', 0.5)            # Tiempo mínimo de contacto
         
         self.gripper_closed_threshold = self.get_parameter('gripper_closed_threshold').value
         self.gripper_open_threshold = self.get_parameter('gripper_open_threshold').value
