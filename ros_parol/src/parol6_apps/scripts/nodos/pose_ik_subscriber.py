@@ -5,6 +5,9 @@ pose_ik_subscriber.py
 Recibe una Pose absoluta (respecto a base_link), resuelve la cinemática inversa
 con el servicio /compute_ik de MoveIt, y ejecuta el movimiento.
 
+Puede recibir la pose en formato RPY (/pose_target_rpy) o directamente en 
+formato de cuaterniones (/pose_target_cuaterniones).
+
 Publica en /robot_motion_status:
   'done'  → movimiento completado con éxito
   'error' → IK fallida o movimiento rechazado
@@ -24,7 +27,9 @@ from moveit_msgs.msg import (
     JointConstraint,
     PositionIKRequest,
 )
+from parol6_interfaces.msg import PoseRPY
 from moveit_msgs.srv import GetPositionIK
+from spatialmath import UnitQuaternion 
 
 
 JOINT_NAMES = ['L1', 'L2', 'L3', 'L4', 'L5', 'L6']
@@ -45,6 +50,7 @@ class PoseIKSubscriber(Node):
 
         # Suscripciónes
         self.create_subscription(Pose, '/pose_target_cuaterniones', self._pose_cb, 10)
+        self.create_subscription(PoseRPY, '/pose_target_rpy', self._pose_rpy_cb, 10)
 
         # Publicador de estado del movimiento
         self.pub_status = self.create_publisher(String, '/robot_motion_status', 10)
@@ -53,13 +59,33 @@ class PoseIKSubscriber(Node):
         self._ik_client.wait_for_service()
         self.get_logger().info('Esperando action server /move_action...')
         self._action_client.wait_for_server()
-        self.get_logger().info('Listo. Esperando poses en /pose_target_cuaterniones...')
+        self.get_logger().info('Listo. Esperando poses en /pose_target_cuaternione o /pose_target_rpy...')
 
     def _publish_status(self, status: str):
         msg = String()
         msg.data = status
         self.pub_status.publish(msg)
         self.get_logger().info(f'Estado publicado: {status}')
+
+    def _pose_rpy_cb(self, msg: PoseRPY):
+        pose_q = self._rpy_to_pose(msg)
+        self.get_logger().info(
+            f'Pose RPY recibida: pos=({msg.x:.3f}, {msg.y:.3f}, {msg.z:.3f}), '
+            f'rpy=({msg.roll:.3f}, {msg.pitch:.3f}, {msg.yaw:.3f})'
+        )
+        self._resolve_ik_and_move(pose_q)
+
+    def _rpy_to_pose(self, msg: PoseRPY) -> Pose:
+        uq = UnitQuaternion.RPY([float(msg.roll), float(msg.pitch), float(msg.yaw)], order='xyz')
+        p = Pose()
+        p.position.x = float(msg.x)
+        p.position.y = float(msg.y)
+        p.position.z = float(msg.z)
+        p.orientation.x = float(uq.v[0])
+        p.orientation.y = float(uq.v[1])
+        p.orientation.z = float(uq.v[2])
+        p.orientation.w = float(uq.s)
+        return p
 
     def _pose_cb(self, msg: Pose):
         self.get_logger().info(

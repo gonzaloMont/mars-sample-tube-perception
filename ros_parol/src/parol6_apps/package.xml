@@ -9,6 +9,7 @@
 
   <buildtool_depend>ament_cmake</buildtool_depend>
   
+  <exec_depend>parol6_interfaces</exec_depend>
   <exec_depend>rclpy</exec_depend>
 
   <!-- Messages -->
@@ -26,6 +27,7 @@
   <exec_depend>cv_bridge</exec_depend>
   <exec_depend>python3-opencv</exec_depend>
   <exec_depend>python3-numpy</exec_depend>
+  <exec_depend>python3-spatialmath</exec_depend>
   <exec_depend>ament_index_python</exec_depend>
 
 
