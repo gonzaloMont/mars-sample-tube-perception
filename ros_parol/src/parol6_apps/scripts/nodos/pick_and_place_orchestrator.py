@@ -31,6 +31,7 @@ Parámetros configurables:
 
 import cv2
 import numpy as np
+import math 
 import rclpy
 from cv_bridge import CvBridge, CvBridgeError
 from geometry_msgs.msg import Pose, PoseStamped
@@ -55,7 +56,7 @@ ARM_JOINT_NAMES     = ['L1', 'L2', 'L3', 'L4', 'L5', 'L6']
 GRIPPER_JOINT_NAMES = ['gripper_joint', 'gripper_right_joint']
 ARM_GROUP           = 'arm_group'
 GRIPPER_GROUP       = 'gripper'
-TIP_LINK            = 'L6_link'
+TIP_LINK            = 'gripper_base_link'
 BASE_FRAME          = 'base_link'
 GRIPPER_OPEN        = 0.025   # metros (estado 'open' del SRDF)
 GRIPPER_CLOSED      = 0.008     # metros (para anchura del tubo)
@@ -83,14 +84,14 @@ class PickAndPlaceOrchestrator(Node):
         self.declare_parameter('cam_y_world',        0.0)
         self.declare_parameter('cam_z_world',        0.75)
         self.declare_parameter('z_approach',         0.15)
-        self.declare_parameter('z_pick',             0.085)
+        self.declare_parameter('z_pick',             0.06)
         self.declare_parameter('z_lift',             0.20)
         self.declare_parameter('deposit_x',          0.10)
         self.declare_parameter('deposit_y',          0.25)
         self.declare_parameter('deposit_z',          0.15)
-        self.declare_parameter('orient_x',           0.707)
+        self.declare_parameter('orient_x',           0.0)
         self.declare_parameter('orient_y',           0.0)
-        self.declare_parameter('orient_z',          -0.707)
+        self.declare_parameter('orient_z',          -1.0)
         self.declare_parameter('orient_w',           0.0)
         self.declare_parameter('min_score',          0.2)
         self.declare_parameter('confirm_detections', 3)
@@ -112,6 +113,8 @@ class PickAndPlaceOrchestrator(Node):
         self.confirm_count    = 0
         self.target_x         = 0.0
         self.target_y         = 0.0
+        self.target_angle = 0.0
+        self._ik_candidates = []   # lista de ángulos pendientes de probar
         self._pending_action  = None   # 'arm' | 'gripper' — qué acción espera respuesta
 
         # ── Intrínseca ───────────────────────────────────────────────────────
@@ -221,8 +224,9 @@ class PickAndPlaceOrchestrator(Node):
 
         if self.last_mask is not None:
             u, v = self._centroid_from_mask(self.last_mask)
-            print(f'COMPARACIÓN DE CENTROS: bbox=({best.bbox.center.position.x:.1f}, {best.bbox.center.position.y:.1f}), mask=({u:.1f}, {v:.1f})')
         else:
+            self.get_logger().warn('Detección sin máscara, esperando máscara...')
+            return
             u = best.bbox.center.position.x
             v = best.bbox.center.position.y
 
@@ -236,6 +240,8 @@ class PickAndPlaceOrchestrator(Node):
             self.confirm_count = 0
             self.target_x = x_world
             self.target_y = y_world
+            self.target_angle = self._orientation_from_mask(self.last_mask)
+            self.get_logger().info(f'Ángulo tubo: {math.degrees(self.target_angle):.1f}°')
             self.get_logger().info(
                 f'Tubo confirmado → x={self.target_x:.3f}, y={self.target_y:.3f}')
             self._transition(OPEN_GRIPPER)
@@ -260,16 +266,23 @@ class PickAndPlaceOrchestrator(Node):
             self._move_gripper_async(GRIPPER_OPEN)
 
         elif new_state == APPROACH:
-            self._move_arm_to_pose_async(self.target_x, self.target_y, self.z_approach)
+            θ = self._normalize_angle(self.target_angle)
+            self._move_arm_to_pose_async(
+                self.target_x, self.target_y, self.z_approach,
+                angle_candidates=[θ, θ + math.pi])
 
         elif new_state == PICK:
-            self._move_arm_to_pose_async(self.target_x, self.target_y, self.z_pick)
-
+            θ = self._normalize_angle(self.target_angle)
+            self._move_arm_to_pose_async(
+                self.target_x, self.target_y, self.z_pick,
+                angle_candidates=[θ, θ + math.pi])
         elif new_state == CLOSE_GRIPPER:
             self._move_gripper_async(GRIPPER_CLOSED)
 
         elif new_state == LIFT:
-            self._move_arm_to_pose_async(self.target_x, self.target_y, self.z_lift)
+            self._move_arm_to_pose_async(
+                self.target_x, self.target_y, self.z_lift,
+                angle_candidates=[self.target_angle])  # mantener la orientación del agarre
 
         elif new_state == DEPOSIT:
             self._move_arm_to_pose_async(self.deposit_x, self.deposit_y, self.z_lift)
@@ -331,18 +344,48 @@ class PickAndPlaceOrchestrator(Node):
 
     # ── Control del brazo ─────────────────────────────────────────────────────
 
-    def _move_arm_to_pose_async(self, x: float, y: float, z: float):
-        """Resuelve IK para la pose dada y envía el movimiento al brazo."""
+    def _move_arm_to_pose_async(self, x: float, y: float, z: float,
+                             angle_candidates: list = None):
+        """Resuelve IK probando cada ángulo candidato hasta encontrar solución."""
         self._pending_action = 'arm'
 
+        if angle_candidates is None:
+            # Sin orientación dinámica — usar orient fijo (HOME, DEPOSIT, etc.)
+            angle_candidates = [None]
+
+        self._ik_candidates = list(angle_candidates)  # copia para consumir
+        self._ik_pose_xyz   = (x, y, z)
+        self._try_next_ik_candidate()
+
+    def _try_next_ik_candidate(self):
+        if not self._ik_candidates:
+            self.get_logger().error('IK fallida con todos los candidatos de orientación.')
+            self._on_motion_done(False)
+            return
+
+        angle = self._ik_candidates.pop(0)
+        self._current_angle = angle   # guardar el que se está probando
+        x, y, z = self._ik_pose_xyz
+
         pose = Pose()
-        pose.position.x    = x - 0.06 # offset de L6 al centro del gripper
-        pose.position.y    = y
-        pose.position.z    = z
-        pose.orientation.x = self.orient_x
-        pose.orientation.y = self.orient_y
-        pose.orientation.z = self.orient_z
-        pose.orientation.w = self.orient_w
+        pose.position.x = x #- 0.06
+        pose.position.y = y
+        pose.position.z = z
+
+        if angle is None:
+            pose.orientation.x = self.orient_x
+            pose.orientation.y = self.orient_y
+            pose.orientation.z = self.orient_z
+            pose.orientation.w = self.orient_w
+        else:
+            q = self.gripper_quaternion_for_tube_angle(angle)
+            pose.orientation.x = float(q[0])
+            pose.orientation.y = float(q[1])
+            pose.orientation.z = float(q[2])
+            pose.orientation.w = float(q[3])
+            self.get_logger().info(
+                f'Probando IK con ángulo {math.degrees(angle):.1f}° '
+                f'({len(self._ik_candidates)} candidatos restantes)')
 
         pose_stamped = PoseStamped()
         pose_stamped.header.frame_id = BASE_FRAME
@@ -358,10 +401,6 @@ class PickAndPlaceOrchestrator(Node):
 
         request = GetPositionIK.Request()
         request.ik_request = ik_request
-
-        self.get_logger().info(
-            f'Resolviendo IK para x={x:.3f}, y={y:.3f}, z={z:.3f} '
-            f'(vel={self.arm_velocity_scaling})')
         future = self._ik_client.call_async(request)
         future.add_done_callback(self._ik_response_cb)
 
@@ -369,17 +408,21 @@ class PickAndPlaceOrchestrator(Node):
         response   = future.result()
         error_code = response.error_code.val
         if error_code != 1:
-            self.get_logger().error(f'IK fallida (código: {error_code})')
-            self._on_motion_done(False)
+            self.get_logger().warn(
+                f'IK fallida (código: {error_code}), probando siguiente candidato...')
+            self._try_next_ik_candidate()   # ← en lugar de _on_motion_done(False)
             return
+
+        if self._current_angle is not None:
+            self.target_angle = self._current_angle  # actualizar para PICK
 
         joint_state = response.solution.joint_state
         positions   = {n: p for n, p in zip(joint_state.name, joint_state.position)}
         target      = [positions.get(j, 0.0) for j in ARM_JOINT_NAMES]
         self.get_logger().info(f'IK resuelta: {[f"{v:.3f}" for v in target]}')
+       
         self._send_joint_goal(ARM_GROUP, ARM_JOINT_NAMES, target,
-                              velocity_scaling=self.arm_velocity_scaling)
-
+                            velocity_scaling=self.arm_velocity_scaling)
     # ── Control del gripper ───────────────────────────────────────────────────
 
     def _move_gripper_async(self, position: float):
@@ -460,11 +503,74 @@ class PickAndPlaceOrchestrator(Node):
             return self.cx, self.cy
         return M['m10'] / M['m00'], M['m01'] / M['m00']
 
+    def _orientation_from_mask(self, mask: np.ndarray) -> float:
+        """
+        Calcula el ángulo del eje mayor del tubo (en radianes) a partir de la máscara.
+
+        Usa cv2.minAreaRect sobre los contornos de la máscara.
+        El ángulo devuelto es el yaw en world que debe tener el gripper para
+        alinearse con el eje longitudinal del tubo.
+
+        cv2.minAreaRect devuelve angle en [-90, 0). Lo convertimos al eje
+        mayor (el lado largo del rectángulo) y lo transformamos a world.
+        """
+
+        contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL,
+                                       cv2.CHAIN_APPROX_SIMPLE)
+        if not contours:
+            return 0.0
+
+        # Contorno más grande (el tubo)
+        largest = max(contours, key=cv2.contourArea)
+        if cv2.contourArea(largest) < 100:
+            return 0.0
+
+        rect = cv2.minAreaRect(largest)
+        # rect = ((cx, cy), (width, height), angle_deg)
+        # angle está en [-90, 0)
+        # Si width < height el eje mayor es vertical → angle + 90
+        # Si width >= height el eje mayor es horizontal → angle
+        (_, (w, h), angle_deg) = rect
+        if w < h:
+            angle_deg += 90.0
+
+        # Convertir a radianes y ajustar al frame world
+        # La cámara cenital con pitch=90° y el frame óptico ROS hace que
+        # el eje X de imagen apunte a -Y_world y el eje Y apunte a -X_world.
+        # Por tanto el ángulo en imagen se mapea directamente como yaw negado.
+        angle_rad = math.radians(-angle_deg) + math.pi
+        return self._normalize_angle(angle_rad + math.pi / 2.0)
+
     def _pixel_to_world(self, u: float, v: float):
         depth = self.cam_z - 0.03
         x_opt = (u - self.cx) / self.fx * depth
         y_opt = (v - self.cy) / self.fy * depth
         return self.cam_x - y_opt, self.cam_y - x_opt
+
+    def _quaternion_from_euler_z(self, yaw: float):
+        return np.array([0.0, 0.0, math.sin(yaw / 2), math.cos(yaw / 2)])
+
+    def _quaternion_multiply(self, q1, q2):
+        x1, y1, z1, w1 = q1
+        x2, y2, z2, w2 = q2
+        return np.array([
+            w1*x2 + x1*w2 + y1*z2 - z1*y2,
+            w1*y2 - x1*z2 + y1*w2 + z1*x2,
+            w1*z2 + x1*y2 - y1*x2 + z1*w2,
+            w1*w2 - x1*x2 - y1*y2 - z1*z2,
+        ])
+    
+    def gripper_quaternion_for_tube_angle(self, tube_angle_rad: float):
+        q_base  = np.array([0.0, 0.0, -1.0, 0.0])
+        q_spin  = self._quaternion_from_euler_z(tube_angle_rad)
+        q       = self._quaternion_multiply(q_spin, q_base)
+        return q / np.linalg.norm(q)
+
+    # Función de normalización de ángulos
+    def _normalize_angle(self, angle: float) -> float:
+        """Normaliza un ángulo al rango [-π, π]."""
+        return math.atan2(math.sin(angle), math.cos(angle))
+
 
 
 # ── main ──────────────────────────────────────────────────────────────────────
