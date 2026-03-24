@@ -32,12 +32,10 @@ class YoloDetectorNode(Node):
         super().__init__('yolo_detector_node')
 
         # ── Parámetros ──────────────────────────────────────────────────────
-        self.declare_parameter('camera_topic',   '/overhead_camera/overhead_cam/image_raw')
         self.declare_parameter('conf_threshold', 0.2)
         self.declare_parameter('model_path',     'yoloe-26s-seg.pt')
         self.declare_parameter('target_classes', ['red tube'])
 
-        self.camera_topic   = self.get_parameter('camera_topic').value
         self.conf_threshold = float(self.get_parameter('conf_threshold').value)
         self.model_path     = self.get_parameter('model_path').value
         self.target_classes = list(self.get_parameter('target_classes').value)
@@ -79,14 +77,14 @@ class YoloDetectorNode(Node):
         # ── Suscriptor ──────────────────────────────────────────────────────
         self.subscription_camera = self.create_subscription(
             Image,
-            self.camera_topic,
+            '/overhead_camera/overhead_cam/image_raw',
             self.image_callback,
             10,
         )
 
         self.subscription_activate = self.create_subscription(
             String,
-            '/vision/activate',
+            'orchestrator/vision_activate',
             self.activate_callback,
             10,
         )
@@ -112,7 +110,7 @@ class YoloDetectorNode(Node):
         self.is_active = False
 
         self.get_logger().info(
-            f'YoloDetectorNode iniciado. Suscrito a {self.camera_topic}.'
+            f'YoloDetectorNode iniciado. Suscrito a /overhead_camera/overhead_cam/image_raw.'
         )
 
     # ────────────────────────────────────────────────────────────────────────

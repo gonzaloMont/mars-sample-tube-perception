@@ -68,10 +68,9 @@ class VirtualGripperNode(Node):
         self.attached_object = None
         self.object_initial_pose = None
         
-        # Offset en frame LOCAL del gripper (se calcula al agarrar)  # CAMBIO
-        self.grasp_offset_local = None      # np.array [x,y,z]       # CAMBIO
-        self.grasp_orientation_rel = None   # np.array [x,y,z,w]     # CAMBIO
-
+        # Offset en frame LOCAL del gripper (se calcula al agarrar)  
+        self.grasp_offset_local = None      # np.array [x,y,z]       
+        self.grasp_orientation_rel = None   # np.array [x,y,z,w]     
         # Flags para evitar llamadas paralelas a los servicios
         self._attaching = False
         self._updating = False
@@ -238,17 +237,17 @@ class VirtualGripperNode(Node):
                             obj_pose.position.z])
         delta_world = obj_pos - grip_pos
 
-        # Rotar el offset al frame LOCAL del gripper:               # CAMBIO
-        # offset_local = q_grip_inv * delta_world                   # CAMBIO
-        grip_quat_inv = quat_conjugate(grip_quat)                   # CAMBIO
-        self.grasp_offset_local = rotate_vector(delta_world,        # CAMBIO
-                                                grip_quat_inv)      # CAMBIO
+        # Rotar el offset al frame LOCAL del gripper:              
+        # offset_local = q_grip_inv * delta_world                  
+        grip_quat_inv = quat_conjugate(grip_quat)                  
+        self.grasp_offset_local = rotate_vector(delta_world,        
+                                                grip_quat_inv)      
 
-        # Orientación relativa del objeto respecto al gripper:      # CAMBIO
-        # q_rel = q_grip_inv * q_obj                                # CAMBIO
-        obj_quat = quat_to_np(obj_pose.orientation)                 # CAMBIO
-        self.grasp_orientation_rel = quat_multiply(                 # CAMBIO
-            grip_quat_inv, obj_quat)                                # CAMBIO
+        # Orientación relativa del objeto respecto al gripper:      
+        # q_rel = q_grip_inv * q_obj                               
+        obj_quat = quat_to_np(obj_pose.orientation)                
+        self.grasp_orientation_rel = quat_multiply(                 
+            grip_quat_inv, obj_quat)                                
 
         self.attached_object = object_name
         self._attaching = False
@@ -273,19 +272,19 @@ class VirtualGripperNode(Node):
         if grip_pos is None:
             return
 
-        # Offset local → world: delta_world = q_grip * offset_local # CAMBIO
-        delta_world = rotate_vector(self.grasp_offset_local,        # CAMBIO
-                                    grip_quat)                      # CAMBIO
+        # Offset local → world: delta_world = q_grip * offset_local 
+        delta_world = rotate_vector(self.grasp_offset_local,        
+                                    grip_quat)                      
 
-        # Orientación del objeto: q_obj = q_grip * q_rel            # CAMBIO
-        obj_quat = quat_multiply(grip_quat,                         # CAMBIO
-                                 self.grasp_orientation_rel)        # CAMBIO
+        # Orientación del objeto: q_obj = q_grip * q_rel           
+        obj_quat = quat_multiply(grip_quat,                        
+                                 self.grasp_orientation_rel)     
 
         new_pose = Pose()
         new_pose.position.x = grip_pos[0] + delta_world[0]
         new_pose.position.y = grip_pos[1] + delta_world[1]
         new_pose.position.z = grip_pos[2] + delta_world[2]
-        new_pose.orientation = np_to_quat(obj_quat)                 # CAMBIO: orientación dinámica
+        new_pose.orientation = np_to_quat(obj_quat)     # orientación dinámica
 
         set_req = SetEntityState.Request()
         set_req.state.name = self.attached_object
@@ -299,8 +298,8 @@ class VirtualGripperNode(Node):
         if self.attached_object:
             self.get_logger().info(f'🔓 Soltando objeto: {self.attached_object}')
             self.attached_object = None
-            self.grasp_offset_local = None      # CAMBIO
-            self.grasp_orientation_rel = None   # CAMBIO
+            self.grasp_offset_local = None      
+            self.grasp_orientation_rel = None  
 
 
 def main(args=None):

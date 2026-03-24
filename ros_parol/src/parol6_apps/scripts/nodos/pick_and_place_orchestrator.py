@@ -97,7 +97,7 @@ class PickAndPlaceOrchestrator(Node):
         self.declare_parameter('confirm_detections', 3)
         self.declare_parameter('arm_velocity_scaling',     0.3)
         self.declare_parameter('gripper_velocity_scaling', 0.5)
-        # Retardo (s) tras completar cada estado antes de pasar al siguiente
+        # Retardo tras completar cada estado antes de pasar al siguiente
         self.declare_parameter('delay_after_open_gripper',  0.0)
         self.declare_parameter('delay_after_approach',      0.0)
         self.declare_parameter('delay_after_pick',          0.0)
@@ -143,8 +143,8 @@ class PickAndPlaceOrchestrator(Node):
             '/joint_states', self._joint_state_cb, 10)
 
         # ── Publicadores ─────────────────────────────────────────────────────
-        self.pub_state = self.create_publisher(String, '/pick_and_place_state', 10)
-        self.pub_vision_need = self.create_publisher(String, '/vision/activate', 10)
+        self.pub_state = self.create_publisher(String, 'orchestrator/pick_and_place_state', 10)
+        self.pub_vision_need = self.create_publisher(String, 'orchestrator/vision_activate', 10)
 
         self.get_logger().info('PickAndPlaceOrchestrator iniciado. Esperando MoveIt y cámara...')
 
@@ -368,7 +368,7 @@ class PickAndPlaceOrchestrator(Node):
         x, y, z = self._ik_pose_xyz
 
         pose = Pose()
-        pose.position.x = x #- 0.06
+        pose.position.x = x 
         pose.position.y = y
         pose.position.z = z
 
@@ -542,7 +542,7 @@ class PickAndPlaceOrchestrator(Node):
         return self._normalize_angle(angle_rad + math.pi / 2.0)
 
     def _pixel_to_world(self, u: float, v: float):
-        depth = self.cam_z - 0.03
+        depth = self.cam_z - 0.02 
         x_opt = (u - self.cx) / self.fx * depth
         y_opt = (v - self.cy) / self.fy * depth
         return self.cam_x - y_opt, self.cam_y - x_opt
