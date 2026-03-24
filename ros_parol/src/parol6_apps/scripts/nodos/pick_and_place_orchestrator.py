@@ -32,6 +32,7 @@ Parámetros configurables:
 import cv2
 import numpy as np
 import math 
+import time
 import rclpy
 from cv_bridge import CvBridge, CvBridgeError
 from geometry_msgs.msg import Pose, PoseStamped
@@ -83,7 +84,7 @@ class PickAndPlaceOrchestrator(Node):
         self.declare_parameter('cam_x_world',        0.2)
         self.declare_parameter('cam_y_world',        0.0)
         self.declare_parameter('cam_z_world',        0.75)
-        self.declare_parameter('z_approach',         0.15)
+        self.declare_parameter('z_approach',         0.1)
         self.declare_parameter('z_pick',             0.06)
         self.declare_parameter('z_lift',             0.20)
         self.declare_parameter('deposit_x',          0.10)
@@ -254,15 +255,11 @@ class PickAndPlaceOrchestrator(Node):
         self._publish_state()
 
         if new_state == SCAN:
-            msg = String()
-            msg.data = 'activate'
-            self.pub_vision_need.publish(msg)
+            self._publish_vision_need_wait('activate')
             self.get_logger().info('Escaneando... esperando detección de tubo.')
 
         elif new_state == OPEN_GRIPPER:
-            msg = String()
-            msg.data = 'deactivate'
-            self.pub_vision_need.publish(msg)
+            self._publish_vision_need_wait('deactivate')
             self._move_gripper_async(GRIPPER_OPEN)
 
         elif new_state == APPROACH:
@@ -495,6 +492,21 @@ class PickAndPlaceOrchestrator(Node):
         msg.data = self.state
         self.pub_state.publish(msg)
 
+    def _publish_vision_need_wait(self, command: str):
+        """Publica en vision_activate solo cuando haya al menos un subscriber."""
+        topic = 'orchestrator/vision_activate'
+        warned = False
+        while self.count_subscribers(topic) < 1:
+            if not warned:
+                self.get_logger().warn(
+                    f'Esperando subscriber en {topic} antes de publicar {command}...')
+                warned = True
+            time.sleep(0.05)
+
+        msg = String()
+        msg.data = command
+        self.pub_vision_need.publish(msg)
+
     # ── Utilidades de visión ──────────────────────────────────────────────────
 
     def _centroid_from_mask(self, mask):
@@ -564,7 +576,7 @@ class PickAndPlaceOrchestrator(Node):
         q_base  = np.array([0.0, 0.0, -1.0, 0.0])
         q_spin  = self._quaternion_from_euler_z(tube_angle_rad)
         q       = self._quaternion_multiply(q_spin, q_base)
-        return q / np.linalg.norm(q)
+        return q / np.linalg.norm(q)  # normalizar cuaternion
 
     # Función de normalización de ángulos
     def _normalize_angle(self, angle: float) -> float:
