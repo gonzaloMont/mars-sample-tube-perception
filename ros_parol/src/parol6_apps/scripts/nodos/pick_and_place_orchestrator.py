@@ -86,7 +86,7 @@ class PickAndPlaceOrchestrator(Node):
         self.declare_parameter('cam_z_world',        0.75)
         self.declare_parameter('z_approach',         0.1)
         self.declare_parameter('z_pick',             0.06)
-        self.declare_parameter('z_lift',             0.20)
+        self.declare_parameter('z_lift',             0.10)
         self.declare_parameter('deposit_x',          0.10)
         self.declare_parameter('deposit_y',          0.25)
         self.declare_parameter('deposit_z',          0.15)
@@ -117,6 +117,8 @@ class PickAndPlaceOrchestrator(Node):
         self.target_angle = 0.0
         self._ik_candidates = []   # lista de ángulos pendientes de probar
         self._pending_action  = None   # 'arm' | 'gripper' — qué acción espera respuesta
+        self._confirm_ref_x   = None   # posición de referencia del ciclo de confirmación 
+        self._confirm_ref_y   = None   # para asegurar que el tubo no se esté moviendo
 
         # ── Intrínseca ───────────────────────────────────────────────────────
         self.fx = self.fy = self.cx = self.cy = None
@@ -228,17 +230,36 @@ class PickAndPlaceOrchestrator(Node):
         else:
             self.get_logger().warn('Detección sin máscara, esperando máscara...')
             return
-            u = best.bbox.center.position.x
-            v = best.bbox.center.position.y
 
         x_world, y_world = self._pixel_to_world(u, v)
-        self.confirm_count += 1
+        
+        # Primera detección: guardar como referencia
+        if self.confirm_count == 0:
+            self._confirm_ref_x = x_world
+            self._confirm_ref_y = y_world
+            self.confirm_count = 1
+        else:
+            # Validar que la detección no se mueva demasiado respecto a la referencia
+            dx = abs(x_world - self._confirm_ref_x)
+            dy = abs(y_world - self._confirm_ref_y)
+            max_delta = 0.01  # máximo desplazamiento permitido en metros
+            if dx > max_delta or dy > max_delta:
+                self.get_logger().warn(
+                    f'Detección se movió {dx:.3f}m, {dy:.3f}m desde referencia — reiniciando')
+                self.confirm_count = 0
+                self._confirm_ref_x = None
+                self._confirm_ref_y = None
+                return
+            self.confirm_count += 1
+        
         self.get_logger().info(
             f'Detección {self.confirm_count}/{self.confirm_detections} '
             f'— tubo en x={x_world:.3f}, y={y_world:.3f}')
 
         if self.confirm_count >= self.confirm_detections:
             self.confirm_count = 0
+            self._confirm_ref_x = None
+            self._confirm_ref_y = None
             self.target_x = x_world
             self.target_y = y_world
             self.target_angle = self._orientation_from_mask(self.last_mask)
@@ -273,6 +294,7 @@ class PickAndPlaceOrchestrator(Node):
             self._move_arm_to_pose_async(
                 self.target_x, self.target_y, self.z_pick,
                 angle_candidates=[θ, θ + math.pi])
+            
         elif new_state == CLOSE_GRIPPER:
             self._move_gripper_async(GRIPPER_CLOSED)
 
