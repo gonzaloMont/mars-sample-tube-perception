@@ -89,7 +89,7 @@ class PickAndPlaceOrchestrator(Node):
         self.declare_parameter('z_lift',             0.10)
         self.declare_parameter('deposit_x',          0.10)
         self.declare_parameter('deposit_y',          0.25)
-        self.declare_parameter('deposit_z',          0.15)
+        self.declare_parameter('deposit_z',          0.10)
         self.declare_parameter('orient_x',           0.0)
         self.declare_parameter('orient_y',           0.0)
         self.declare_parameter('orient_z',          -1.0)
