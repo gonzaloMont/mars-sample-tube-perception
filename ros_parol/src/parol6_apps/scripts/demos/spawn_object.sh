@@ -11,6 +11,7 @@ set -euo pipefail
 #   ./spawn_object.sh box_small 0.32 0.00 0.02 0 0 0
 #   ./spawn_object.sh tube_green 0.25 0.10 0.03 0 1.5708 0 mi_tubo_verde
 #   ./spawn_object.sh box_rect 0.30 0.10 0.01 0 0 0 caja_verde 0.1 0.8 0.1 1.0
+#   ./spawn_object.sh deposit_box 0.42 0.00 0.00 0 0 0 caja_deposito
 
 if [[ "${1:-}" == "" ]]; then
   echo "Uso: $0 <modelo> [x y z R P Y [entidad [r g b a]]]"
@@ -21,6 +22,7 @@ if [[ "${1:-}" == "" ]]; then
   echo "  - tube_blue"
   echo "  - box_small"
   echo "  - box_rect"
+  echo "  - deposit_box"
   echo "  - sphere_small"
   echo "  - disk_flat"
   exit 1

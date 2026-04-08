@@ -1,0 +1,129 @@
+<?xml version="1.0" ?>
+<sdf version="1.6">
+  <model name="deposit_box">
+    <static>true</static>
+    <link name="deposit_box_link">
+      <inertial>
+        <mass>0.5</mass>
+        <inertia>
+          <ixx>0.0010</ixx>
+          <iyy>0.0016</iyy>
+          <izz>0.0019</izz>
+          <ixy>0</ixy>
+          <ixz>0</ixz>
+          <iyz>0</iyz>
+        </inertia>
+      </inertial>
+
+      <!-- Base -->
+      <collision name="base_collision">
+        <pose>0 0 0.0025 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.18 0.12 0.005</size>
+          </box>
+        </geometry>
+      </collision>
+      <visual name="base_visual">
+        <pose>0 0 0.0025 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.18 0.12 0.005</size>
+          </box>
+        </geometry>
+        <material>
+          <ambient>0.20 0.20 0.22 1</ambient>
+          <diffuse>0.35 0.35 0.38 1</diffuse>
+        </material>
+      </visual>
+
+      <!-- Left wall -->
+      <collision name="left_wall_collision">
+        <pose>0 0.0575 0.03 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.18 0.005 0.06</size>
+          </box>
+        </geometry>
+      </collision>
+      <visual name="left_wall_visual">
+        <pose>0 0.0575 0.03 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.18 0.005 0.06</size>
+          </box>
+        </geometry>
+        <material>
+          <ambient>0.20 0.20 0.22 1</ambient>
+          <diffuse>0.35 0.35 0.38 1</diffuse>
+        </material>
+      </visual>
+
+      <!-- Right wall -->
+      <collision name="right_wall_collision">
+        <pose>0 -0.0575 0.03 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.18 0.005 0.06</size>
+          </box>
+        </geometry>
+      </collision>
+      <visual name="right_wall_visual">
+        <pose>0 -0.0575 0.03 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.18 0.005 0.06</size>
+          </box>
+        </geometry>
+        <material>
+          <ambient>0.20 0.20 0.22 1</ambient>
+          <diffuse>0.35 0.35 0.38 1</diffuse>
+        </material>
+      </visual>
+
+      <!-- Front wall -->
+      <collision name="front_wall_collision">
+        <pose>0.0875 0 0.03 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.005 0.11 0.06</size>
+          </box>
+        </geometry>
+      </collision>
+      <visual name="front_wall_visual">
+        <pose>0.0875 0 0.03 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.005 0.11 0.06</size>
+          </box>
+        </geometry>
+        <material>
+          <ambient>0.20 0.20 0.22 1</ambient>
+          <diffuse>0.35 0.35 0.38 1</diffuse>
+        </material>
+      </visual>
+
+      <!-- Back wall -->
+      <collision name="back_wall_collision">
+        <pose>-0.0875 0 0.03 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.005 0.11 0.06</size>
+          </box>
+        </geometry>
+      </collision>
+      <visual name="back_wall_visual">
+        <pose>-0.0875 0 0.03 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.005 0.11 0.06</size>
+          </box>
+        </geometry>
+        <material>
+          <ambient>0.20 0.20 0.22 1</ambient>
+          <diffuse>0.35 0.35 0.38 1</diffuse>
+        </material>
+      </visual>
+    </link>
+  </model>
+</sdf>
