@@ -18,7 +18,7 @@
 
   <buildtool_depend>ament_cmake</buildtool_depend>
 
-  <!-- Descripción del robot -->
+  <!-- Robot description -->
   <exec_depend>parol6_description</exec_depend>
   <exec_depend>xacro</exec_depend>
 
@@ -33,7 +33,7 @@
   <exec_depend>moveit_setup_assistant</exec_depend>
 
 
-  <!-- Infraestructura ROS 2 -->
+  <!-- ROS 2 infrastructure -->
   <exec_depend>robot_state_publisher</exec_depend>
   <exec_depend>joint_state_publisher</exec_depend>
   <exec_depend>joint_state_publisher_gui</exec_depend>
@@ -41,7 +41,7 @@
   <exec_depend>gazebo_ros</exec_depend>
   <exec_depend>controller_manager</exec_depend>
   
-  <!-- Visualización -->
+  <!-- Visualization -->
   <exec_depend>rviz2</exec_depend>
   <exec_depend>rviz_common</exec_depend>
   <exec_depend>rviz_default_plugins</exec_depend>

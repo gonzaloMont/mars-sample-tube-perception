@@ -7,7 +7,7 @@
     3D models.
   </description>
 
-  <maintainer email="TODO@email.com">TODO</maintainer>
+  <maintainer email="montanagonzalo73@gmail.com">gonzalomontanagomez</maintainer>
   <license>BSD</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>

@@ -3,9 +3,9 @@
 <package format="3">
   <name>parol6_interfaces</name>
   <version>0.0.0</version>
-  <description>Interfaces PAROL6</description>
+  <description>Custom ROS 2 interfaces for PAROL6.</description>
   <maintainer email="montanagonzalo73@gmail.com">gonzalomontanagomez</maintainer>
-  <license>TODO: License declaration</license>
+  <license>MIT</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
   <build_depend>rosidl_default_generators</build_depend>

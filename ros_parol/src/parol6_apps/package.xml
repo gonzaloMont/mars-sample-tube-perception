@@ -3,9 +3,9 @@
 <package format="3">
   <name>parol6_apps</name>
   <version>0.0.0</version>
-  <description>Scripts de usuario y demos para el robot.</description>
+  <description>User-facing demos, helpers, and orchestration scripts for PAROL6.</description>
   <maintainer email="montanagonzalo73@gmail.com">gonzalomontanagomez</maintainer>
-  <license>TODO: License declaration</license>
+  <license>MIT</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
   

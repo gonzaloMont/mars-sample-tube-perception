@@ -3,9 +3,9 @@
 <package format="3">
   <name>parol6_controllers</name>
   <version>0.0.0</version>
-  <description>Nodos de control del robot PAROL6 (gripper virtual, etc.).</description>
+  <description>Control nodes for PAROL6, including the virtual gripper.</description>
   <maintainer email="montanagonzalo73@gmail.com">gonzalomontanagomez</maintainer>
-  <license>TODO: License declaration</license>
+  <license>MIT</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
 

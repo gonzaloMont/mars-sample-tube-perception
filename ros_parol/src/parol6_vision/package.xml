@@ -4,24 +4,24 @@
   <name>parol6_vision</name>
   <version>0.0.0</version>
   <description>
-    Pipeline de visión para el robot PAROL6. Lee la imagen de la cámara cenital,
-    detecta objetos con YOLO y estima la pose objetivo para el brazo.
+    Vision pipeline for the PAROL6 robot. It reads overhead camera images,
+    detects objects with YOLO, and estimates target poses for the arm.
   </description>
   <maintainer email="montanagonzalo73@gmail.com">gonzalomontanagomez</maintainer>
-  <license>TODO: License declaration</license>
+  <license>MIT</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
 
-  <!-- Infraestructura ROS 2 -->
+  <!-- ROS 2 infrastructure -->
   <exec_depend>rclpy</exec_depend>
   
-  <!-- Mensajes -->
+  <!-- Messages -->
   <exec_depend>sensor_msgs</exec_depend>
   <exec_depend>geometry_msgs</exec_depend>
   <exec_depend>vision_msgs</exec_depend>
   <exec_depend>std_msgs</exec_depend>
    
-  <!-- Visión -->
+  <!-- Vision -->
   <exec_depend>cv_bridge</exec_depend>
   <exec_depend>python3-opencv</exec_depend>
 
