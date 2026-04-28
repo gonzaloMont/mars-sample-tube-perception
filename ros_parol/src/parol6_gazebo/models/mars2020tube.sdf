@@ -1,0 +1,58 @@
+<?xml version="1.0" ?>
+<sdf version="1.6">
+  <model name="mars2020tube">
+    <static>false</static>
+    <link name="tube_link">
+      <inertial>
+        <mass>0.087</mass> 
+        <inertia>
+          <ixx>0.00025307</ixx>
+          <iyy>0.00025307</iyy>
+          <izz>0.00000449</izz>
+          <ixy>0</ixy>
+          <ixz>0</ixz>
+          <iyz>0</iyz>
+        </inertia>
+      </inertial>
+
+      <collision name="collision">
+        <geometry>
+          <cylinder>
+            <radius>0.01016</radius>
+            <length>0.186</length>
+          </cylinder>
+        </geometry>
+        <surface>
+          <friction>
+            <ode>
+              <mu>100</mu>
+              <mu2>100</mu2>
+            </ode>
+          </friction>
+          <contact>
+            <ode>
+              <kp>1000000</kp>
+              <kd>1000</kd>
+              <min_depth>0.0</min_depth>
+              <max_vel>0.5</max_vel>
+            </ode>
+          </contact>
+        </surface>
+      </collision>
+
+      <visual name="visual">
+        <pose>-0.010497 -0.010489 -0.093000 0 0 0</pose>
+        <geometry>
+          <mesh>
+            <uri>file:///home/gonzalomontanagomez/parol6_ws/src/PAROL6/ros_parol/src/parol6_gazebo/meshes/mars2020tube.stl</uri>
+            <scale>0.022939 0.022939 0.033212</scale>
+          </mesh>
+        </geometry>
+        <material>
+          <ambient>0.75 0.75 0.75 1</ambient>
+          <diffuse>0.85 0.85 0.85 1</diffuse>
+        </material>
+      </visual>
+    </link>
+  </model>
+</sdf>
