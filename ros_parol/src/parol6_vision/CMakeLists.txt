@@ -27,6 +27,7 @@ install(PROGRAMS
     nodos/yolo_camera_subscriber.py
     nodos/pose_estimator_node.py
     nodos/pose_estimator_node2.py
+    nodos/synthetic_dataset_generator.py
     DESTINATION lib/${PROJECT_NAME}
 )
 
