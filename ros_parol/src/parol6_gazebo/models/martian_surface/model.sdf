@@ -1,0 +1,85 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Modelo: martian_surface
+  Origen: spaceros_gz_demos (Gazebo Ignition/Harmonic)
+  Adaptado para: Gazebo Classic (Gazebo 11, OGRE 1.x)
+
+  DIAGNÓSTICO DEL PROBLEMA ORIGINAL:
+    Gazebo Classic usa OGRE 1.x como motor de renderizado.
+    OGRE 1.x NO soporta el formato GLB/GLTF2 de forma nativa.
+    Por eso el terreno aparecía como un plano negro: Gazebo cargaba el
+    modelo en el motor de física (ODE) pero fallaba silenciosamente al
+    renderizarlo en OGRE.
+
+  SOLUCIÓN:
+    Se convierte la malla martian_surface.glb al formato OBJ (Wavefront),
+    que OGRE 1.x / Gazebo Classic sí soporta completamente.
+    La conversión se realizó con Python (trimesh) aplicando:
+      · Concatenación de los 5 submeshes del GLB en una malla única
+      · Rotación −90° en X: GLTF usa Y-up, Gazebo usa Z-up
+      · Traslación para que z_min = 0 (la base del terreno queda en z=0)
+    Resultado: terreno de ~199×199 m con variación de altura de ~30 m.
+    El robot puede spawnear en robot_z:=0.0 sin ajustes adicionales.
+
+  Archivos en resources/:
+    martian_surface.obj  — malla OBJ (35 MB, 263k vértices, 520k triángulos)
+    material.mtl         — material Wavefront referenciando Material.png
+    Material.png         — textura albedo marciana (1024×1024, RGB ~[122,85,60])
+-->
+<sdf version="1.6">
+  <model name="martian_surface">
+    <static>true</static>
+    <!--
+      Pose: (0 0 0 0 0 0) — el OBJ ya está orientado Z-up y con z_min=0.
+      No se necesita la rotación de 90° que sí era necesaria con el GLB.
+    -->
+    <pose>0 0 0 0 0 0</pose>
+
+    <link name="base_link">
+
+      <!-- ── Colisión (ODE) ──────────────────────────────────────────── -->
+      <collision name="base_link_collision">
+        <geometry>
+          <mesh>
+            <uri>model://martian_surface/resources/martian_surface.obj</uri>
+            <scale>100 100 100</scale>
+          </mesh>
+        </geometry>
+        <surface>
+          <friction>
+            <ode>
+              <mu>0.8</mu>
+              <mu2>0.8</mu2>
+            </ode>
+            <torsional><ode/></torsional>
+          </friction>
+          <contact>
+            <ode>
+              <kp>1000000.0</kp>
+              <kd>100.0</kd>
+              <min_depth>0.001</min_depth>
+              <max_vel>0.1</max_vel>
+            </ode>
+          </contact>
+          <bounce/>
+        </surface>
+      </collision>
+
+      <!-- ── Visual (OGRE 1.x) ──────────────────────────────────────── -->
+      <visual name="base_link_visual">
+        <geometry>
+          <mesh>
+            <!--
+              OBJ soportado por OGRE 1.x (Gazebo Classic).
+              El material.mtl y Material.png deben estar en el mismo
+              directorio resources/ junto al .obj.
+            -->
+            <uri>model://martian_surface/resources/martian_surface.obj</uri>
+            <scale>100 100 100</scale>
+          </mesh>
+        </geometry>
+      </visual>
+
+    </link>
+  </model>
+</sdf>

@@ -1,0 +1,111 @@
+<?xml version="1.0" ?>
+<!--
+  Mundo marciano para Gazebo Classic (Gazebo 11 / ROS 2 Humble).
+
+  Origen: spaceros_gz_demos (Gazebo Ignition → convertido a Gazebo Classic)
+  Cambios respecto al original de SpaceROS:
+    · Plugins de Ignition (gz-sim-*) → plugins de Gazebo Classic (libgazebo_ros_*.so)
+    · URI de malla:  models://martian_surface/... → model://martian_surface/...
+    · Física: bloque <physics> compatible con ODE (Gazebo Classic)
+    · Se añade plugin gazebo_ros_state para poder usar ros2 service /get_model_state
+    · La gravedad marciana (−3.71 m/s²) se conserva
+    · El modelo martian_surface se referencia vía GAZEBO_MODEL_PATH
+
+  Para usarlo:
+    export GAZEBO_MODEL_PATH=<ws>/install/parol6_gazebo/share/parol6_gazebo/models:$GAZEBO_MODEL_PATH
+    ros2 launch parol6_gazebo gazebo_moveit_spaceros_mars.launch.py
+-->
+<sdf version="1.7">
+  <world name="spaceros_mars">
+
+    <!-- ── Físicas marcianas ──────────────────────────────────────────── -->
+    <gravity>0 0 -3.71</gravity>
+    <magnetic_field>6e-06 2.3e-05 -4.2e-05</magnetic_field>
+    <atmosphere type="adiabatic"/>
+
+    <physics type="ode">
+      <max_step_size>0.001</max_step_size>
+      <real_time_factor>1</real_time_factor>
+      <real_time_update_rate>1000</real_time_update_rate>
+    </physics>
+
+    <!-- ── Escena ─────────────────────────────────────────────────────── -->
+    <scene>
+      <!-- Cielo marciano: tono ocre-anaranjado -->
+      <ambient>0.85 0.65 0.45 1.0</ambient>
+      <background>0.78 0.55 0.30 1.0</background>
+      <shadows>true</shadows>
+      <grid>false</grid>
+    </scene>
+
+    <!-- ── Iluminación solar marciana ────────────────────────────────── -->
+    <!--
+      El Sol desde Marte tiene ~43% de la irradiancia terrestre.
+      La luz es más fría y tenue, con mayor componente difusa por el polvo.
+    -->
+    <light type="directional" name="sun">
+      <cast_shadows>true</cast_shadows>
+      <pose>0 0 100 0 0 0</pose>
+      <!-- Ligeramente más cálido/amarillo que en la Tierra -->
+      <diffuse>0.70 0.60 0.50 1</diffuse>
+      <specular>0.10 0.08 0.06 1</specular>
+      <direction>-0.7 0.1 -0.7</direction>
+      <attenuation>
+        <range>1000</range>
+        <constant>0.9</constant>
+        <linear>0.01</linear>
+        <quadratic>0.001</quadratic>
+      </attenuation>
+    </light>
+
+    <!-- Luz ambiental difusa (polvo marciano dispersa la luz) -->
+    <light type="directional" name="ambient_dust">
+      <cast_shadows>false</cast_shadows>
+      <pose>0 0 50 0 0 0</pose>
+      <diffuse>0.30 0.20 0.15 1</diffuse>
+      <specular>0.0 0.0 0.0 1</specular>
+      <direction>0.0 0.0 -1.0</direction>
+    </light>
+
+    <!-- ── Terreno marciano (modelo de SpaceROS) ─────────────────────── -->
+    <!--
+      El modelo martian_surface está en parol6_gazebo/models/martian_surface
+      y se carga vía model:// para reutilizar su model.sdf (OBJ + material),
+      compatible con Gazebo Classic (OGRE 1.x).
+    -->
+    <include>
+      <uri>model://martian_surface</uri>
+      <pose>0 0 0 0 0 0</pose>
+    </include>
+
+    <!-- ── Plugins ROS de Gazebo Classic ─────────────────────────────── -->
+    <!--
+      gazebo_ros_state: permite consultar poses con:
+        ros2 service call /get_model_state gazebo_msgs/srv/GetModelState
+        ros2 service call /get_entity_state gazebo_msgs/srv/GetEntityState
+    -->
+    <plugin name="gazebo_ros_state" filename="libgazebo_ros_state.so">
+      <ros>
+        <namespace>/</namespace>
+      </ros>
+      <update_rate>10</update_rate>
+    </plugin>
+
+    <!--
+      gazebo_ros_init: publica el reloj de simulación en /clock
+      (necesario para use_sim_time en todos los nodos ROS 2)
+    -->
+    <plugin name="gazebo_ros_init" filename="libgazebo_ros_init.so"/>
+
+    <!-- ── Parámetros de coordenadas esféricas (opcional) ────────────── -->
+    <spherical_coordinates>
+      <!-- Localización aproximada de Jezero Crater -->
+      <surface_model>EARTH_WGS84</surface_model>
+      <latitude_deg>18.4447</latitude_deg>
+      <longitude_deg>77.4508</longitude_deg>
+      <elevation>-2500</elevation>
+      <heading_deg>0</heading_deg>
+    </spherical_coordinates>
+
+  </world>
+</sdf>
