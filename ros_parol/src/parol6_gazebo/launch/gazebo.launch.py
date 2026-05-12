@@ -122,7 +122,7 @@ def generate_launch_description():
             '--roll', '0.0', '--pitch', '1.5707963267949', '--yaw', '0.0',
             '--frame-id', 'world', '--child-frame-id', 'overhead_camera_link',
         ],
-        output='screen',
+        output='screen'
     )
 
     return LaunchDescription([
