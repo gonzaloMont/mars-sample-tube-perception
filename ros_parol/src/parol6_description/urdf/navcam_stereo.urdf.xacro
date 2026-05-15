@@ -1,0 +1,177 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="navcam_stereo">
+
+  <!-- NavCam stereo rig for SFR/ExoMars-style navigation vision.
+       Physical baseline: 0.15 m along Y between optical centers.
+       Optical frames follow the ROS convention: Z forward, X right, Y down.
+       Sensor configuration:
+         - 1024x1024 mono8
+         - 65 deg horizontal FOV (1.13446 rad)
+         - 5.0 Hz update rate
+       Gazebo Classic plugin: libgazebo_ros_camera.so
+  -->
+
+  <link name="navcam_rig_link">
+    <inertial>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <mass value="0.05"/>
+      <inertia ixx="5e-5" ixy="0" ixz="0" iyy="5e-5" iyz="0" izz="5e-5"/>
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.06 0.04 0.02"/>
+      </geometry>
+      <material name="navcam_body">
+        <color rgba="0.1 0.1 0.1 1"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.06 0.04 0.02"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <joint name="navcam_rig_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="navcam_rig_link"/>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+  </joint>
+
+  <link name="navcam_left_link">
+    <inertial>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <mass value="0.02"/>
+      <inertia ixx="1e-5" ixy="0" ixz="0" iyy="1e-5" iyz="0" izz="1e-5"/>
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.03 0.03 0.03"/>
+      </geometry>
+      <material name="navcam_left_body">
+        <color rgba="0.2 0.2 0.2 1"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.03 0.03 0.03"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <joint name="navcam_left_joint" type="fixed">
+    <parent link="navcam_rig_link"/>
+    <child link="navcam_left_link"/>
+    <origin xyz="0 0.075 0" rpy="0 0 0"/>
+  </joint>
+
+  <link name="navcam_left_optical_frame"/>
+
+  <joint name="navcam_left_optical_joint" type="fixed">
+    <parent link="navcam_left_link"/>
+    <child link="navcam_left_optical_frame"/>
+    <origin xyz="0 0 0" rpy="-1.5707963267949 0 -1.5707963267949"/>
+  </joint>
+
+  <link name="navcam_right_link">
+    <inertial>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <mass value="0.02"/>
+      <inertia ixx="1e-5" ixy="0" ixz="0" iyy="1e-5" iyz="0" izz="1e-5"/>
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.03 0.03 0.03"/>
+      </geometry>
+      <material name="navcam_right_body">
+        <color rgba="0.2 0.2 0.2 1"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.03 0.03 0.03"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <joint name="navcam_right_joint" type="fixed">
+    <parent link="navcam_rig_link"/>
+    <child link="navcam_right_link"/>
+    <origin xyz="0 -0.075 0" rpy="0 0 0"/>
+  </joint>
+
+  <link name="navcam_right_optical_frame"/>
+
+  <joint name="navcam_right_optical_joint" type="fixed">
+    <parent link="navcam_right_link"/>
+    <child link="navcam_right_optical_frame"/>
+    <origin xyz="0 0 0" rpy="-1.5707963267949 0 -1.5707963267949"/>
+  </joint>
+
+  <gazebo reference="navcam_left_link">
+    <sensor type="camera" name="navcam_left_sensor">
+      <always_on>true</always_on>
+      <update_rate>5.0</update_rate>
+      <visualize>false</visualize>
+      <camera name="navcam_left_camera">
+        <horizontal_fov>1.1344640137963142</horizontal_fov>
+        <image>
+          <width>1024</width>
+          <height>1024</height>
+          <format>L8</format>
+        </image>
+        <clip>
+          <near>0.1</near>
+          <far>100.0</far>
+        </clip>
+      </camera>
+      <plugin name="navcam_left_controller" filename="libgazebo_ros_camera.so">
+        <ros>
+          <namespace>/navcam/left</namespace>
+          <remapping>image_raw:=image_raw</remapping>
+          <remapping>camera_info:=camera_info</remapping>
+        </ros>
+        <camera_name>navcam_left</camera_name>
+        <frame_name>navcam_left_optical_frame</frame_name>
+        <hack_baseline>0.0</hack_baseline>
+      </plugin>
+    </sensor>
+  </gazebo>
+
+  <gazebo reference="navcam_right_link">
+    <sensor type="camera" name="navcam_right_sensor">
+      <always_on>true</always_on>
+      <update_rate>5.0</update_rate>
+      <visualize>false</visualize>
+      <camera name="navcam_right_camera">
+        <horizontal_fov>1.1344640137963142</horizontal_fov>
+        <image>
+          <width>1024</width>
+          <height>1024</height>
+          <format>L8</format>
+        </image>
+        <clip>
+          <near>0.1</near>
+          <far>100.0</far>
+        </clip>
+      </camera>
+      <plugin name="navcam_right_controller" filename="libgazebo_ros_camera.so">
+        <ros>
+          <namespace>/navcam/right</namespace>
+          <remapping>image_raw:=image_raw</remapping>
+          <remapping>camera_info:=camera_info</remapping>
+        </ros>
+        <camera_name>navcam_right</camera_name>
+        <frame_name>navcam_right_optical_frame</frame_name>
+        <hack_baseline>0.0</hack_baseline>
+      </plugin>
+    </sensor>
+  </gazebo>
+
+</robot>
