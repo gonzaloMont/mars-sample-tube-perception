@@ -1,15 +1,26 @@
 <?xml version="1.0"?>
+<!--
+  NavCam estéreo – entidad Gazebo independiente del robot PAROL6.
+
+  Se spawnea como entidad separada en Gazebo con su propio robot_description.
+  Los TFs base_link → navcam_rig_link y toda la cadena interna se publican
+  con static_transform_publisher en el launch (todos los joints son fijos).
+
+  Topics publicados:
+    /navcam/left/navcam_left/image_raw      (sensor_msgs/Image)
+    /navcam/left/navcam_left/camera_info    (sensor_msgs/CameraInfo)
+    /navcam/right/navcam_right/image_raw    (sensor_msgs/Image)
+    /navcam/right/navcam_right/camera_info  (sensor_msgs/CameraInfo)
+  Frames TF (publicados por static_transform_publisher en el launch):
+    navcam_rig_link
+    navcam_left_link / navcam_left_optical_frame
+    navcam_right_link / navcam_right_optical_frame
+-->
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="navcam_stereo">
 
-  <!-- NavCam stereo rig for SFR/ExoMars-style navigation vision.
-       Physical baseline: 0.15 m along Y between optical centers.
-       Optical frames follow the ROS convention: Z forward, X right, Y down.
-       Sensor configuration:
-         - 1024x1024 mono8
-         - 65 deg horizontal FOV (1.13446 rad)
-         - 5.0 Hz update rate
-       Gazebo Classic plugin: libgazebo_ros_camera.so
-  -->
+  <gazebo>
+    <static>true</static>
+  </gazebo>
 
   <link name="navcam_rig_link">
     <inertial>
@@ -33,12 +44,6 @@
       </geometry>
     </collision>
   </link>
-
-  <joint name="navcam_rig_joint" type="fixed">
-    <parent link="base_link"/>
-    <child link="navcam_rig_link"/>
-    <origin xyz="0 0 0" rpy="0 0 0"/>
-  </joint>
 
   <link name="navcam_left_link">
     <inertial>
@@ -134,8 +139,6 @@
       <plugin name="navcam_left_controller" filename="libgazebo_ros_camera.so">
         <ros>
           <namespace>/navcam/left</namespace>
-          <remapping>image_raw:=image_raw</remapping>
-          <remapping>camera_info:=camera_info</remapping>
         </ros>
         <camera_name>navcam_left</camera_name>
         <frame_name>navcam_left_optical_frame</frame_name>
@@ -164,8 +167,6 @@
       <plugin name="navcam_right_controller" filename="libgazebo_ros_camera.so">
         <ros>
           <namespace>/navcam/right</namespace>
-          <remapping>image_raw:=image_raw</remapping>
-          <remapping>camera_info:=camera_info</remapping>
         </ros>
         <camera_name>navcam_right</camera_name>
         <frame_name>navcam_right_optical_frame</frame_name>
