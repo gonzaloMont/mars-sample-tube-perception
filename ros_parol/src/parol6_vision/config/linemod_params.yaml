@@ -1,0 +1,46 @@
+# ═══════════════════════════════════════════════════════════════════════════
+# linemod_params.yaml — Parámetros del nodo de inferencia LINEMOD.
+#
+# Cárgalo con:
+#   ros2 run parol6_vision linemod_pose_estimator_node.py \
+#       --ros-args --params-file <ruta>/linemod_params.yaml
+# o desde el launch (linemod_pose.launch.py ya lo hace).
+# ═══════════════════════════════════════════════════════════════════════════
+
+linemod_pose_estimator_node:
+  ros__parameters:
+
+    # ── Tópicos de entrada/salida ──────────────────────────────────────────
+    image_topic:         "/overhead_camera/overhead_cam/image_raw"
+    camera_info_topic:   "/overhead_camera/overhead_cam/camera_info"
+    detections_topic:    "/vision/detections"
+    pose_array_topic:    "/vision/pose_estimates"
+    legacy_pose_topic:   "/pose_target_cuaterniones"   # compat. pipeline actual
+    debug_image_topic:   "/vision/linemod_debug_image"
+
+    # ── Base de datos LINEMOD ──────────────────────────────────────────────
+    # Vacío => se busca en share/parol6_vision/models/linemod.
+    linemod_db_dir:      ""
+
+    # ── Parámetros de matching ─────────────────────────────────────────────
+    match_threshold:     80.0   # similitud LINEMOD [0..100]; bájalo si no hay
+                                # match, súbelo si hay falsos positivos.
+    min_score:           0.3    # confianza mínima de la detección YOLO.
+    bbox_padding:        12     # px de margen al recortar el ROI del bbox.
+
+    # ── Frames ─────────────────────────────────────────────────────────────
+    base_frame:              "base_link"
+    camera_optical_frame:    "overhead_camera_optical_frame"
+    object_frame:            "tube_link_estimated"
+
+    # ── Geometría del montaje (fallback si tf2 no tiene la transformada) ───
+    ground_plane_z:      0.03   # altura del eje del tubo sobre el suelo [m].
+    cam_x_world:         0.2
+    cam_y_world:         0.0
+    cam_z_world:         0.75
+
+    # ── Comportamiento ─────────────────────────────────────────────────────
+    # true  -> estima cada vez que llega una detección (modo streaming).
+    # false -> solo estima cuando se llama al servicio ~/estimate_now
+    #          (recomendado si el orquestador controla el ritmo).
+    publish_on_detection: true

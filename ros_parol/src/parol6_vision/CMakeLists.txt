@@ -7,7 +7,7 @@ endif()
 
 # find dependencies
 find_package(ament_cmake REQUIRED)
-
+find_package(ament_cmake_python REQUIRED)
 
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
@@ -22,6 +22,12 @@ if(BUILD_TESTING)
 endif()
 
 
+# ── Módulo Python compartido (parol6_vision/) ───────────────────────────────
+# Instala el paquete Python `parol6_vision` de forma que sea importable desde
+# los nodos:  from parol6_vision.linemod_db import LinemodDatabase
+ament_python_install_package(${PROJECT_NAME})
+
+
 # ── Nodos de visión (ros2 run parol6_vision <nodo>) ─────────────────────────
 install(PROGRAMS
     nodos/yolo_camera_subscriber.py
@@ -29,13 +35,25 @@ install(PROGRAMS
     nodos/pose_estimator_node.py
     nodos/pose_estimator_node2.py
     nodos/synthetic_dataset_generator.py
+    nodos/linemod_pose_estimator_node.py 
     DESTINATION lib/${PROJECT_NAME}
 )
 
-# ── Configuración (pesos YOLO, parámetros, etc.) ────────────────────────────
+# ── Herramientas offline (NO son nodos ROS, pero se exponen con ros2 run) ───
+install(PROGRAMS
+    scripts/train_linemod_templates.py            # NUEVO: genera los templates
+    scripts/eval_linemod_offline.py               # NUEVO: verificación offline
+    DESTINATION lib/${PROJECT_NAME}
+)
+
+
+# ── Recursos: configuración, modelos y launch ───────────────────────────────
 install(DIRECTORY
     models
+    config
+    launch
     DESTINATION share/${PROJECT_NAME}
 )
+
 
 ament_package()

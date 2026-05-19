@@ -2,19 +2,21 @@
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
   <name>parol6_vision</name>
-  <version>0.0.0</version>
+  <version>0.1.0</version>
   <description>
     Vision pipeline for the PAROL6 robot. It reads overhead camera images,
-    detects objects with YOLO, and estimates target poses for the arm.
+    detects objects with YOLO, and estimates target 6D poses for the arm
+    using LINEMOD template matching.
   </description>
   <maintainer email="montanagonzalo73@gmail.com">gonzalomontanagomez</maintainer>
   <license>MIT</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
+  <buildtool_depend>ament_cmake_python</buildtool_depend>
 
   <!-- ROS 2 infrastructure -->
   <exec_depend>rclpy</exec_depend>
-  
+
   <!-- Messages -->
   <exec_depend>sensor_msgs</exec_depend>
   <exec_depend>geometry_msgs</exec_depend>
@@ -23,10 +25,13 @@
   <exec_depend>std_msgs</exec_depend>
   <exec_depend>std_srvs</exec_depend>
   <exec_depend>tf2_ros</exec_depend>
+  <exec_depend>tf2_geometry_msgs</exec_depend>
   <exec_depend>gazebo_msgs</exec_depend>
-   
+
   <!-- Vision -->
   <exec_depend>cv_bridge</exec_depend>
+  <!-- LINEMOD vive en el módulo contrib de OpenCV: se necesita
+       opencv-contrib-python (cv2.linemod). Ver README_LINEMOD.md. -->
   <exec_depend>python3-opencv</exec_depend>
 
   <!-- YOLO -->
@@ -34,6 +39,12 @@
   <exec_depend>python3-numpy</exec_depend>
   <exec_depend>python3-ultralytics</exec_depend>
 
+  <!-- LINEMOD: render offline de templates y carga de mallas.
+       trimesh y pyrender NO suelen tener clave rosdep; instálalos con pip
+       (ver README_LINEMOD.md). Se declaran como pip para documentar la
+       dependencia. -->
+  <exec_depend>python3-yaml</exec_depend>
+  <!-- pip: trimesh pyrender  (renderer offline, solo entrenamiento) -->
 
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>ament_lint_common</test_depend>

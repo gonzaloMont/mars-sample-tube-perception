@@ -28,3 +28,18 @@ ros2 run parol6_vision pose_estimator_node.py
 
 - The node expects overhead camera image topics to be available.
 - Some model artifacts may have their own usage constraints independent from source code license.
+
+
+
+## Generación de la base de datos LINEMOD
+
+La base de datos de templates LINEMOD se genera offline y **NO se versiona** 
+(ver `.gitignore`).
+
+Para generar la base de datos:
+
+```bash
+python3 ros_parol/src/parol6_vision/scripts/train_linemod_templates.py \
+    --stl ros_parol/src/parol6_gazebo/meshes/mars2020tube.stl \
+    --out ros_parol/src/parol6_vision/models/linemod \
+    --distance 0.72
