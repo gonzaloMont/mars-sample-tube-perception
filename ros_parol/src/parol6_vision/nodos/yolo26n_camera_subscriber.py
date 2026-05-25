@@ -31,9 +31,14 @@ class Yolo26nDetectorNode(Node):
         # ── Parámetros ──────────────────────────────────────────────────────
         self.declare_parameter('conf_threshold', 0.3)
         self.declare_parameter('model_path', 'best.pt')
+        # Tópico de la imagen de entrada (configurable para soportar tanto la
+        # cámara cenital como la NavCam estéreo del pipeline ICP).
+        self.declare_parameter('image_topic',
+                               '/overhead_camera/overhead_cam/image_raw')
 
         self.conf_threshold = float(self.get_parameter('conf_threshold').value)
         self.model_path = str(self.get_parameter('model_path').value)
+        self.image_topic = str(self.get_parameter('image_topic').value)
 
         # ── Ruta al modelo ───────────────────────────────────────────────────
         models_dir = os.path.join(get_package_share_directory('parol6_vision'), 'models')
@@ -64,7 +69,7 @@ class Yolo26nDetectorNode(Node):
         # ── Suscriptor ──────────────────────────────────────────────────────
         self.subscription_camera = self.create_subscription(
             Image,
-            '/overhead_camera/overhead_cam/image_raw',
+            self.image_topic,
             self.image_callback,
             10,
         )
@@ -92,7 +97,7 @@ class Yolo26nDetectorNode(Node):
         self.is_active = False
 
         self.get_logger().info(
-            'Yolo26nDetectorNode iniciado. Suscrito a /overhead_camera/overhead_cam/image_raw.'
+            f'Yolo26nDetectorNode iniciado. Suscrito a {self.image_topic}.'
         )
 
     # ────────────────────────────────────────────────────────────────────────

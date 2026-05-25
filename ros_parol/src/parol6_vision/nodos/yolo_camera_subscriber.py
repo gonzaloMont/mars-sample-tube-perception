@@ -35,10 +35,15 @@ class YoloDetectorNode(Node):
         self.declare_parameter('conf_threshold', 0.2)
         self.declare_parameter('model_path',     'yoloe-26s-seg.pt')
         self.declare_parameter('target_classes', ['red tube'])
+        # Tópico de la imagen de entrada (configurable para soportar tanto la
+        # cámara cenital como la NavCam estéreo del pipeline ICP).
+        self.declare_parameter('image_topic',
+                               '/overhead_camera/overhead_cam/image_raw')
 
         self.conf_threshold = float(self.get_parameter('conf_threshold').value)
         self.model_path     = self.get_parameter('model_path').value
         self.target_classes = list(self.get_parameter('target_classes').value)
+        self.image_topic    = self.get_parameter('image_topic').value
 
         # ── Ruta al modelo ───────────────────────────────────────────────────
         models_dir = os.path.join(
@@ -77,7 +82,7 @@ class YoloDetectorNode(Node):
         # ── Suscriptor ──────────────────────────────────────────────────────
         self.subscription_camera = self.create_subscription(
             Image,
-            '/overhead_camera/overhead_cam/image_raw',
+            self.image_topic,
             self.image_callback,
             10,
         )
@@ -110,7 +115,7 @@ class YoloDetectorNode(Node):
         self.is_active = False
 
         self.get_logger().info(
-            f'YoloDetectorNode iniciado. Suscrito a /overhead_camera/overhead_cam/image_raw.'
+            f'YoloDetectorNode iniciado. Suscrito a {self.image_topic}.'
         )
 
     # ────────────────────────────────────────────────────────────────────────
