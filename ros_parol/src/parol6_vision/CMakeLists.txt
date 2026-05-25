@@ -37,6 +37,7 @@ install(PROGRAMS
     nodos/synthetic_dataset_generator.py
     nodos/linemod_pose_estimator_node.py
     nodos/stereo_pointcloud_node.py
+    nodos/icp_pose_estimator_node.py
     DESTINATION lib/${PROJECT_NAME}
 )
 
@@ -44,6 +45,7 @@ install(PROGRAMS
 install(PROGRAMS
     scripts/train_linemod_templates.py            # NUEVO: genera los templates
     scripts/eval_linemod_offline.py               # NUEVO: verificación offline
+    scripts/test_icp_pose.py                      # NUEVO: test rendimiento ICP
     DESTINATION lib/${PROJECT_NAME}
 )
 

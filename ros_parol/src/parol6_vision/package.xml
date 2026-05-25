@@ -47,6 +47,13 @@
   <exec_depend>python3-yaml</exec_depend>
   <!-- pip: trimesh pyrender  (renderer offline, solo entrenamiento) -->
 
+  <!-- ICP (icp_pose_estimator_node): estimación de pose 6D YOLO + ICP.
+       Open3D no tiene clave rosdep; instálalo con pip (ver README_ICP.md):
+         pip3 install open3d
+       sensor_msgs_py se usa de forma opcional; el nodo trae su propio
+       parser de PointCloud2, por lo que no es estrictamente necesario. -->
+  <!-- pip: open3d  (registro ICP y procesado de nubes de puntos) -->
+
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>ament_lint_common</test_depend>
 
