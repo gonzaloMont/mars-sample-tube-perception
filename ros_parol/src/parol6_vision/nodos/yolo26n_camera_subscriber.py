@@ -35,10 +35,17 @@ class Yolo26nDetectorNode(Node):
         # cámara cenital como la NavCam estéreo del pipeline ICP).
         self.declare_parameter('image_topic',
                                '/overhead_camera/overhead_cam/image_raw')
+        # Optimización: procesar solo 1 de cada N frames
+        self.declare_parameter('skip_frames', 10)
+        # Publicar imagen anotada de debug (desactivar en producción)
+        self.declare_parameter('publish_debug_image', False)
 
         self.conf_threshold = float(self.get_parameter('conf_threshold').value)
         self.model_path = str(self.get_parameter('model_path').value)
         self.image_topic = str(self.get_parameter('image_topic').value)
+        self.skip_frames = int(self.get_parameter('skip_frames').value)
+        self.publish_debug_image = bool(self.get_parameter('publish_debug_image').value)
+        self.frame_count = 0  # Contador para saltar frames
 
         # ── Ruta al modelo ───────────────────────────────────────────────────
         models_dir = os.path.join(get_package_share_directory('parol6_vision'), 'models')
@@ -97,7 +104,9 @@ class Yolo26nDetectorNode(Node):
         self.is_active = False
 
         self.get_logger().info(
-            f'Yolo26nDetectorNode iniciado. Suscrito a {self.image_topic}.'
+            f'Yolo26nDetectorNode iniciado. Suscrito a {self.image_topic}. '
+            f'Procesando 1 de cada {self.skip_frames} frames. '
+            f'Debug image: {"ON" if self.publish_debug_image else "OFF"}.'
         )
 
     # ────────────────────────────────────────────────────────────────────────
@@ -114,6 +123,11 @@ class Yolo26nDetectorNode(Node):
     def image_callback(self, msg: Image) -> None:
         if not self.is_active:
             return
+
+        # ── Optimización: procesar solo 1 de cada N frames ──────────────────
+        self.frame_count += 1
+        if self.frame_count % self.skip_frames != 0:
+            return  # Saltar este frame
 
         try:
             frame = self.bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
@@ -163,13 +177,15 @@ class Yolo26nDetectorNode(Node):
 
         self.pub_detections.publish(det_array)
 
-        annotated = result.plot()
-        try:
-            self.pub_annotated.publish(
-                self.bridge.cv2_to_imgmsg(annotated, encoding='bgr8')
-            )
-        except CvBridgeError as e:
-            self.get_logger().error(f'Error publicando imagen anotada: {e}')
+        # ── Publicar imagen anotada solo si está configurado (debug) ───────
+        if self.publish_debug_image:
+            annotated = result.plot()
+            try:
+                self.pub_annotated.publish(
+                    self.bridge.cv2_to_imgmsg(annotated, encoding='bgr8')
+                )
+            except CvBridgeError as e:
+                self.get_logger().error(f'Error publicando imagen anotada: {e}')
 
 
 # ────────────────────────────────────────────────────────────────────────────
