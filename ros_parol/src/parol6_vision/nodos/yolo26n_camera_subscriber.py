@@ -34,7 +34,7 @@ class Yolo26nDetectorNode(Node):
         # Tópico de la imagen de entrada (configurable para soportar tanto la
         # cámara cenital como la NavCam estéreo del pipeline ICP).
         self.declare_parameter('image_topic',
-                               '/overhead_camera/overhead_cam/image_raw')
+                               '/navcam/left/navcam_left/image_raw')
         # Optimización: procesar solo 1 de cada N frames
         self.declare_parameter('skip_frames', 10)
         # Publicar imagen anotada de debug (desactivar en producción)
