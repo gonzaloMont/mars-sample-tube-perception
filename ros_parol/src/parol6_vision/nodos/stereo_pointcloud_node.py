@@ -69,7 +69,7 @@ class StereoPointCloudNode(Node):
 
         # Parámetros SGBM
         self.declare_parameter('min_disparity',    0)
-        self.declare_parameter('num_disparities',  224)   # múltiplo de 16
+        self.declare_parameter('num_disparities',  96)   # múltiplo de 16
         self.declare_parameter('block_size',       7)     # impar, 3–11
         self.declare_parameter('uniqueness_ratio', 5)
         self.declare_parameter('speckle_window',   100)
