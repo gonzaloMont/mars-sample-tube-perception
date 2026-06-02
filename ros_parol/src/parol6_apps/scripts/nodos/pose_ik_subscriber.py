@@ -13,6 +13,8 @@ Publica en /robot_motion_status:
   'error' → IK fallida o movimiento rechazado
 """
 
+import math
+
 import rclpy
 from rclpy.node import Node
 from rclpy.action import ActionClient
@@ -29,7 +31,6 @@ from moveit_msgs.msg import (
 )
 from parol6_interfaces.msg import PoseRPY
 from moveit_msgs.srv import GetPositionIK
-from spatialmath import UnitQuaternion 
 
 
 JOINT_NAMES = ['L1', 'L2', 'L3', 'L4', 'L5', 'L6']
@@ -76,15 +77,24 @@ class PoseIKSubscriber(Node):
         self._resolve_ik_and_move(pose_q)
 
     def _rpy_to_pose(self, msg: PoseRPY) -> Pose:
-        uq = UnitQuaternion.RPY([float(msg.roll), float(msg.pitch), float(msg.yaw)], order='xyz')
+        # RPY (XYZ-fixed, convención ROS/URDF estándar) → cuaternión (x, y, z, w).
+        # Misma fórmula que parol6_vision/scripts/test_icp_pose.py:rpy_to_quat.
+        cr, sr = math.cos(msg.roll * 0.5),  math.sin(msg.roll * 0.5)
+        cp, sp = math.cos(msg.pitch * 0.5), math.sin(msg.pitch * 0.5)
+        cy, sy = math.cos(msg.yaw * 0.5),   math.sin(msg.yaw * 0.5)
+        qw = cr * cp * cy + sr * sp * sy
+        qx = sr * cp * cy - cr * sp * sy
+        qy = cr * sp * cy + sr * cp * sy
+        qz = cr * cp * sy - sr * sp * cy
+
         p = Pose()
         p.position.x = float(msg.x)
         p.position.y = float(msg.y)
         p.position.z = float(msg.z)
-        p.orientation.x = float(uq.v[0])
-        p.orientation.y = float(uq.v[1])
-        p.orientation.z = float(uq.v[2])
-        p.orientation.w = float(uq.s)
+        p.orientation.x = float(qx)
+        p.orientation.y = float(qy)
+        p.orientation.z = float(qz)
+        p.orientation.w = float(qw)
         return p
 
     def _pose_cb(self, msg: Pose):

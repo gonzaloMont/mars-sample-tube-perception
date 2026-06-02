@@ -46,6 +46,7 @@ install(PROGRAMS
     scripts/train_linemod_templates.py            # NUEVO: genera los templates
     scripts/eval_linemod_offline.py               # NUEVO: verificación offline
     scripts/test_icp_pose.py                      # NUEVO: test rendimiento ICP
+    scripts/test_tube_grasp_pose.py               # NUEVO: test end-to-end del nodo de agarre
     DESTINATION lib/${PROJECT_NAME}
 )
 

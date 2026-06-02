@@ -21,14 +21,21 @@ if(BUILD_TESTING)
   ament_lint_auto_find_test_dependencies()
 endif()
 
-# instalar los programas como ejecutables 
+# instalar los programas como ejecutables
 install(PROGRAMS
     scripts/nodos/get_pose.py
     scripts/nodos/pose_ik_subscriber.py
     scripts/nodos/pick_and_place_orchestrator.py
+    scripts/nodos/tube_grasp_pose_node.py
     scripts/demos/test_moveit.py
     scripts/demos/test_moveit_cartesian.py
     DESTINATION lib/${PROJECT_NAME}
+)
+
+# instalar los launch files
+install(DIRECTORY launch
+    DESTINATION share/${PROJECT_NAME}
+    OPTIONAL
 )
 
 # El script bash se instala en share (no necesita ser ejecutable por ros2 run)
