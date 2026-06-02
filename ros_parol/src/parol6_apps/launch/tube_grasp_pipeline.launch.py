@@ -82,6 +82,15 @@ def generate_launch_description() -> LaunchDescription:
     enable_ik_arg = DeclareLaunchArgument(
         'enable_ik', default_value='false',
         description='Arrancar pose_ik_subscriber.py para mover el brazo.')
+    enable_grasp_executor_arg = DeclareLaunchArgument(
+        'enable_grasp_executor', default_value='false',
+        description='Arrancar grasp_executor.py, que ejecuta approach→pick '
+                    'con fallback automático a la variante alt cuando la IK '
+                    'rechaza la primary. Expone /grasp/execute (std_srvs/Trigger).')
+    grasp_executor_try_alt_arg = DeclareLaunchArgument(
+        'grasp_executor_try_alt', default_value='true',
+        description='Si enable_grasp_executor=true, hacer fallback a la '
+                    'variante alt cuando la primary falla la IK.')
     output_frame_arg = DeclareLaunchArgument(
         'output_frame', default_value='',
         description='Frame en el que el nodo ICP publica /vision/tube_pose '
@@ -160,6 +169,8 @@ def generate_launch_description() -> LaunchDescription:
     )
 
     # ── Consumidor del topic legacy: pose_ik_subscriber.py (opcional) ────────
+    # Solo ejecuta UNA pose (la principal) sin fallback. Adecuado para
+    # debugging manual o integraciones simples.
     ik_node = Node(
         package='parol6_apps',
         executable='pose_ik_subscriber.py',
@@ -168,11 +179,31 @@ def generate_launch_description() -> LaunchDescription:
         condition=IfCondition(LaunchConfiguration('enable_ik')),
     )
 
+    # ── Ejecutor con fallback primary→alt: grasp_executor.py (opcional) ──────
+    # Consume las 4 poses publicadas por tube_grasp_pose_node y ejecuta
+    # approach→pick con fallback automático. Más robusto que pose_ik_subscriber
+    # para usos productivos; se dispara vía servicio /grasp/execute (Trigger).
+    grasp_executor_node = Node(
+        package='parol6_apps',
+        executable='grasp_executor.py',
+        name='grasp_executor',
+        output='screen',
+        condition=IfCondition(LaunchConfiguration('enable_grasp_executor')),
+        parameters=[{
+            'arm_group_name':    'arm_group',
+            'tip_link':           LaunchConfiguration('grasp_tip_link'),
+            'try_alt_on_failure': ParameterValue(
+                LaunchConfiguration('grasp_executor_try_alt'), value_type=bool),
+        }],
+    )
+
     return LaunchDescription([
         enable_vision_arg,
         enable_yolo_arg,
         enable_stereo_arg,
         enable_ik_arg,
+        enable_grasp_executor_arg,
+        grasp_executor_try_alt_arg,
         output_frame_arg,
         base_frame_arg,
         grasp_tip_link_arg,
@@ -184,4 +215,5 @@ def generate_launch_description() -> LaunchDescription:
         vision_launch,
         grasp_node,
         ik_node,
+        grasp_executor_node,
     ])
