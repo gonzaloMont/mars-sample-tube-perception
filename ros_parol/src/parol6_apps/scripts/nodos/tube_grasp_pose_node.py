@@ -65,6 +65,13 @@ ENTRADAS / SALIDAS
     `approach_pose_topic` (PoseStamped, default `/grasp/approach_pose`)
         Pose de aproximación (gripper_base_link) en `base_frame`,
         `approach_height` metros por encima del pick (en +Z_world).
+    `<pick_pose_topic>_alt`     (PoseStamped, default `/grasp/pick_pose_alt`)
+        Variante del pick con la orientación rotada 180° alrededor del eje
+        Z del gripper. Geométricamente equivalente para un cilindro
+        (simetría rotacional), pero corresponde a otra configuración de
+        joints — útil como fallback cuando la IK del principal falla.
+    `<approach_pose_topic>_alt` (PoseStamped, default `/grasp/approach_pose_alt`)
+        Equivalente para la pose de aproximación.
     `legacy_pose_topic`   (Pose, opcional, default `/pose_target_cuaterniones`)
         Pose plana para `pose_ik_subscriber.py`. Solo se publica si
         `publish_legacy_pose=true`. Si `legacy_tip_link` ≠ `grasp_tip_link`,
@@ -374,6 +381,15 @@ class TubeGraspPoseNode(Node):
         self._pub_pick = self.create_publisher(PoseStamped, self._pick_topic, 10)
         self._pub_approach = self.create_publisher(
             PoseStamped, self._approach_topic, 10)
+        # Variante "alt": misma posición que el principal pero con la
+        # orientación rotada 180° alrededor del eje Z del gripper. Geométrica-
+        # mente equivalente para un cilindro (simetría rotacional ±π en torno
+        # a su eje largo), pero corresponde a otra configuración de joints
+        # — útil como fallback cuando la IK rechaza la principal.
+        self._pub_pick_alt = self.create_publisher(
+            PoseStamped, self._pick_topic + '_alt', 10)
+        self._pub_approach_alt = self.create_publisher(
+            PoseStamped, self._approach_topic + '_alt', 10)
         # El publisher del topic legacy se crea SIEMPRE para soportar el cambio
         # dinámico de `publish_legacy_pose` (callback más abajo). Si el flag
         # está a False, simplemente no se llama a `.publish()`.
@@ -466,6 +482,29 @@ class TubeGraspPoseNode(Node):
         approach_ps.pose.position.z = float(geom.approach_p[2])
         approach_ps.pose.orientation = pick_ps.pose.orientation
         self._pub_approach.publish(approach_ps)
+
+        # ── Variante alt: rotación 180° alrededor de z_g (cilindro simétrico).
+        # R_alt = R_grasp · Rz(π). Posición invariante.
+        R_flip_z = np.array([[-1.0, 0.0, 0.0],
+                             [0.0, -1.0, 0.0],
+                             [0.0, 0.0, 1.0]])
+        R_alt = geom.pick_R @ R_flip_z
+        qax, qay, qaz, qaw = mat_to_quat(R_alt)
+
+        pick_alt_ps = PoseStamped()
+        pick_alt_ps.header = pick_ps.header
+        pick_alt_ps.pose.position = pick_ps.pose.position
+        pick_alt_ps.pose.orientation.x = float(qax)
+        pick_alt_ps.pose.orientation.y = float(qay)
+        pick_alt_ps.pose.orientation.z = float(qaz)
+        pick_alt_ps.pose.orientation.w = float(qaw)
+        self._pub_pick_alt.publish(pick_alt_ps)
+
+        approach_alt_ps = PoseStamped()
+        approach_alt_ps.header = approach_ps.header
+        approach_alt_ps.pose.position = approach_ps.pose.position
+        approach_alt_ps.pose.orientation = pick_alt_ps.pose.orientation
+        self._pub_approach_alt.publish(approach_alt_ps)
 
         if self._broadcast_tf:
             tf_msg = TransformStamped()

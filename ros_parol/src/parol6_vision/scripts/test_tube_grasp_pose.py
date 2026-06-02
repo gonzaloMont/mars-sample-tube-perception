@@ -65,6 +65,7 @@ from typing import List, Optional, Tuple
 import numpy as np
 
 import rclpy
+from rclpy.action import ActionClient
 from rclpy.node import Node
 from rclpy.qos import QoSDurabilityPolicy, QoSProfile, QoSReliabilityPolicy
 
@@ -73,9 +74,34 @@ from ament_index_python.packages import get_package_share_directory
 
 from gazebo_msgs.srv import DeleteEntity, SpawnEntity
 from geometry_msgs.msg import Pose, PoseStamped, TransformStamped
+from moveit_msgs.action import MoveGroup
+from moveit_msgs.msg import (
+    Constraints,
+    JointConstraint,
+    MotionPlanRequest,
+    PlanningOptions,
+)
 from rcl_interfaces.msg import Parameter, ParameterType, ParameterValue
 from rcl_interfaces.srv import SetParameters
 from std_msgs.msg import String
+
+
+# ════════════════════════════════════════════════════════════════════════════
+#  Posición HOME del brazo (joint values medidos en simulación).
+#  El test mueve el brazo a esta configuración ANTES de cada spawn de tubo
+#  para que el brazo nunca esté en la zona donde va a aparecer el tubo, lo
+#  que provocaba colisiones en Gazebo al respawnear.
+# ════════════════════════════════════════════════════════════════════════════
+ARM_JOINT_NAMES = ['L1', 'L2', 'L3', 'L4', 'L5', 'L6']
+ARM_HOME_POSITIONS = [
+    -0.0001287080347163183,
+    -0.9599771561327288,
+     1.28999018740207,
+    -0.005668835824959473,
+     0.2581663987092836,
+     0.017957190239044962,
+]
+ARM_GROUP_NAME = 'arm_group'
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -275,6 +301,7 @@ class TestResult:
     pick_err_calc_mm: float           # error entre pick publicado y pick calculado
     orient_err_calc_deg: float
     motion_status: str                # 'done' | 'error' | 'timeout' | 'skipped'
+    variant_used: str                 # 'primary' | 'alt' | 'none' | 'skipped'
     tf_err_pos_mm: float              # error TF gripper_base_link vs pick publicado
     tf_err_orient_deg: float
     passed: bool
@@ -294,6 +321,7 @@ class TestResult:
             f"{self.pick_err_calc_mm:.2f}" if not math.isnan(self.pick_err_calc_mm) else "n/a",
             f"{self.orient_err_calc_deg:.2f}" if not math.isnan(self.orient_err_calc_deg) else "n/a",
             self.motion_status,
+            self.variant_used,
             f"{self.tf_err_pos_mm:.2f}" if not math.isnan(self.tf_err_pos_mm) else "n/a",
             f"{self.tf_err_orient_deg:.2f}" if not math.isnan(self.tf_err_orient_deg) else "n/a",
             "PASS" if self.passed else f"FAIL ({self.fail_reason})",
@@ -319,6 +347,8 @@ class TubeGraspTester(Node):
         # ── Estado por test ──────────────────────────────────────────────────
         self._last_pick: Optional[PoseStamped] = None
         self._last_approach: Optional[PoseStamped] = None
+        self._last_pick_alt: Optional[PoseStamped] = None
+        self._last_approach_alt: Optional[PoseStamped] = None
         self._last_motion_status: Optional[str] = None
         # Contador de transiciones de estado, para distinguir el evento de este
         # ciclo de un evento previo persistente.
@@ -336,6 +366,12 @@ class TubeGraspTester(Node):
             PoseStamped, "/grasp/pick_pose", self._pick_cb, sensor_qos)
         self.create_subscription(
             PoseStamped, "/grasp/approach_pose", self._approach_cb, sensor_qos)
+        self.create_subscription(
+            PoseStamped, "/grasp/pick_pose_alt",
+            self._pick_alt_cb, sensor_qos)
+        self.create_subscription(
+            PoseStamped, "/grasp/approach_pose_alt",
+            self._approach_alt_cb, sensor_qos)
         self.create_subscription(
             String, "/robot_motion_status", self._status_cb, 10)
 
@@ -356,6 +392,9 @@ class TubeGraspTester(Node):
         self._cli_set_params = self.create_client(
             SetParameters, "/tube_grasp_pose_node/set_parameters")
 
+        # ── Cliente del action de MoveIt (para llevar el brazo a HOME) ──────
+        self._move_action_client = ActionClient(self, MoveGroup, "/move_action")
+
         # ── TF (para leer la pose final del gripper tras moverse) ───────────
         self._tf_buffer = tf2_ros.Buffer()
         self._tf_listener = tf2_ros.TransformListener(self._tf_buffer, self)
@@ -369,6 +408,12 @@ class TubeGraspTester(Node):
 
     def _approach_cb(self, msg: PoseStamped) -> None:
         self._last_approach = msg
+
+    def _pick_alt_cb(self, msg: PoseStamped) -> None:
+        self._last_pick_alt = msg
+
+    def _approach_alt_cb(self, msg: PoseStamped) -> None:
+        self._last_approach_alt = msg
 
     def _status_cb(self, msg: String) -> None:
         self._last_motion_status = msg.data
@@ -489,6 +534,63 @@ class TubeGraspTester(Node):
         self._pub_tube.publish(msg)
 
     # ─────────────────────────────────────────────────────────────────────────
+    # Mover el brazo a HOME (joint goal directo vía /move_action de MoveIt).
+    # Bloqueante. Se usa entre tests para evitar que el brazo esté en la zona
+    # del próximo spawn.
+    # ─────────────────────────────────────────────────────────────────────────
+
+    def move_arm_to_home(self, timeout_s: float = 15.0,
+                         velocity_scaling: float = 0.5) -> str:
+        """Devuelve 'done', 'no_server', 'rejected', 'send_timeout',
+        'exec_timeout' o 'error_<code>'."""
+        if not self._move_action_client.wait_for_server(timeout_sec=5.0):
+            return "no_server"
+
+        goal = MoveGroup.Goal()
+        req = MotionPlanRequest()
+        req.group_name                      = ARM_GROUP_NAME
+        req.num_planning_attempts           = 5
+        req.allowed_planning_time           = 5.0
+        req.max_velocity_scaling_factor     = velocity_scaling
+        req.max_acceleration_scaling_factor = velocity_scaling
+
+        constraints = Constraints()
+        for jname, pos in zip(ARM_JOINT_NAMES, ARM_HOME_POSITIONS):
+            jc = JointConstraint()
+            jc.joint_name      = jname
+            jc.position        = float(pos)
+            jc.tolerance_above = 0.01
+            jc.tolerance_below = 0.01
+            jc.weight          = 1.0
+            constraints.joint_constraints.append(jc)
+        req.goal_constraints.append(constraints)
+
+        goal.request                          = req
+        goal.planning_options                 = PlanningOptions()
+        goal.planning_options.plan_only       = False
+        goal.planning_options.replan          = True
+        goal.planning_options.replan_attempts = 3
+
+        send_future = self._move_action_client.send_goal_async(goal)
+        rclpy.spin_until_future_complete(self, send_future, timeout_sec=5.0)
+        if not send_future.done():
+            return "send_timeout"
+        handle = send_future.result()
+        if handle is None or not handle.accepted:
+            return "rejected"
+
+        result_future = handle.get_result_async()
+        rclpy.spin_until_future_complete(
+            self, result_future, timeout_sec=timeout_s)
+        if not result_future.done():
+            return "exec_timeout"
+        result = result_future.result()
+        if result is None:
+            return "no_result"
+        code = result.result.error_code.val
+        return "done" if code == 1 else f"error_{code}"
+
+    # ─────────────────────────────────────────────────────────────────────────
     # Envío al brazo: convierte la pose (gripper_base_link) a la de L6_link y
     # la publica en /pose_target_cuaterniones. Espera /robot_motion_status.
     # ─────────────────────────────────────────────────────────────────────────
@@ -575,10 +677,24 @@ class TubeGraspTester(Node):
         )
         degenerate = expected is None
 
-        # ── Limpieza y spawn ─────────────────────────────────────────────────
+        # ── Limpieza, retorno a HOME y spawn ─────────────────────────────────
+        # Orden importante: primero borramos el tubo previo (libera el espacio
+        # para que el path planning a HOME no encuentre obstáculos), luego
+        # llevamos el brazo a HOME (estado seguro fuera del workspace donde
+        # va a aparecer el siguiente tubo), y por último spawnamos el nuevo
+        # tubo. Solo movemos a HOME en modo --check-arm: sin check_arm el
+        # brazo no se mueve y mover a home sería trabajo innecesario.
         if do_spawn:
             self.delete_tube()
             time.sleep(0.3)
+            if check_arm:
+                home_status = self.move_arm_to_home()
+                if home_status != "done":
+                    self.get_logger().warn(
+                        f"No se pudo llevar el brazo a HOME ({home_status}); "
+                        f"continúo, pero el siguiente spawn podría colisionar.")
+                else:
+                    self.get_logger().info("Brazo en HOME, listo para spawn.")
             if not self.spawn_tube(x, y, z, roll, pitch, yaw):
                 return _failure(name, (x, y, z), (roll, pitch, yaw),
                                 degenerate, "spawn_failed")
@@ -587,6 +703,8 @@ class TubeGraspTester(Node):
         # ── Reset estado ─────────────────────────────────────────────────────
         self._last_pick = None
         self._last_approach = None
+        self._last_pick_alt = None
+        self._last_approach_alt = None
         self._last_motion_status = None
 
         # ── Esperar a que el nodo grasp esté escuchando /vision/tube_pose ───
@@ -602,11 +720,14 @@ class TubeGraspTester(Node):
                             "no_subscriber para /vision/tube_pose")
         self.publish_tube_pose(x, y, z, roll, pitch, yaw)
 
-        # ── Esperar pick + approach (sin republicar) ────────────────────────
+        # ── Esperar las 4 poses (principal + alt) ───────────────────────────
         grasp_deadline = time.monotonic() + grasp_timeout_s
         while rclpy.ok() and time.monotonic() < grasp_deadline:
             rclpy.spin_once(self, timeout_sec=0.05)
-            if self._last_pick is not None and self._last_approach is not None:
+            if (self._last_pick is not None
+                    and self._last_approach is not None
+                    and self._last_pick_alt is not None
+                    and self._last_approach_alt is not None):
                 break
 
         # Caso degenerado: esperamos que NO se publique nada → PASS si así fue.
@@ -621,6 +742,7 @@ class TubeGraspTester(Node):
                 pick_err_calc_mm=float("nan"),
                 orient_err_calc_deg=float("nan"),
                 motion_status="skipped",
+                variant_used="skipped",
                 tf_err_pos_mm=float("nan"),
                 tf_err_orient_deg=float("nan"),
                 passed=self._last_pick is None,
@@ -648,34 +770,84 @@ class TubeGraspTester(Node):
         # ── Movimiento (solo si --check-arm) ─────────────────────────────────
         # Secuencia approach → pick para evitar trayectorias rectas que
         # atraviesen el tubo. Cada pose se publica UNA sola vez.
+        # Fallback automático: si la pose PRINCIPAL falla (IK no resoluble,
+        # configuración inalcanzable, etc.), reintenta con la ALT (rotada
+        # 180° en z_g del gripper). El cilindro es simétrico, así que ambas
+        # son geométricamente equivalentes; sólo cambia la configuración de
+        # joints requerida.
         motion_status = "skipped"
+        variant_used = "skipped"
         tf_err_pos_mm = float("nan")
         tf_err_orient_deg = float("nan")
+        # `R_final` y `p_final` apuntan a la pose realmente comandada al
+        # brazo (primary o alt) — sobre ella se mide el error TF posterior.
+        R_final = R_pub
+        p_final = p_pub
         if check_arm:
-            # Approach
+            # Posición del pick es la misma en primary y alt (sólo cambia
+            # la orientación), así que extraemos también la pose alt para
+            # poder reintentar si la primary falla.
+            ps_alt = self._last_pick_alt.pose
+            R_pub_alt = quat_to_mat(
+                ps_alt.orientation.x, ps_alt.orientation.y,
+                ps_alt.orientation.z, ps_alt.orientation.w)
+            p_pub_alt = np.array(
+                [ps_alt.position.x, ps_alt.position.y, ps_alt.position.z])
+
             ap = self._last_approach.pose
-            p_appr = np.array([ap.position.x, ap.position.y, ap.position.z])
             R_appr = quat_to_mat(ap.orientation.x, ap.orientation.y,
                                   ap.orientation.z, ap.orientation.w)
-            status_appr = self.send_to_arm(
-                R_appr, p_appr, motion_timeout_s, label="APPROACH")
-            if status_appr != "done":
-                motion_status = f"approach:{status_appr}"
-            else:
-                # Pick (con la misma orientación que approach)
+            p_appr = np.array([ap.position.x, ap.position.y, ap.position.z])
+
+            ap_alt = self._last_approach_alt.pose
+            R_appr_alt = quat_to_mat(
+                ap_alt.orientation.x, ap_alt.orientation.y,
+                ap_alt.orientation.z, ap_alt.orientation.w)
+            p_appr_alt = np.array(
+                [ap_alt.position.x, ap_alt.position.y, ap_alt.position.z])
+
+            # Lista de variantes a probar en orden: primary primero, alt
+            # como fallback. Cada entry es (label, R_approach, p_approach,
+            # R_pick, p_pick).
+            variants = [
+                ("primary", R_appr,     p_appr,     R_pub,     p_pub),
+                ("alt",     R_appr_alt, p_appr_alt, R_pub_alt, p_pub_alt),
+            ]
+
+            for label, R_a, p_a, R_p, p_p in variants:
+                status_appr = self.send_to_arm(
+                    R_a, p_a, motion_timeout_s, label=f"APPROACH-{label}")
+                if status_appr != "done":
+                    self.get_logger().info(
+                        f"  variante '{label}' descartada en approach: "
+                        f"{status_appr}")
+                    continue
                 status_pick = self.send_to_arm(
-                    R_pub, p_pub, motion_timeout_s, label="PICK")
+                    R_p, p_p, motion_timeout_s, label=f"PICK-{label}")
                 if status_pick == "done":
                     motion_status = "done"
-                    time.sleep(0.4)  # esperar a que TF refleje la pose final
-                    gripper = self.lookup_gripper_pose(timeout_s=1.0)
-                    if gripper is not None:
-                        R_arm, p_arm = gripper
-                        tf_err_pos_mm = float(
-                            np.linalg.norm(p_arm - p_pub) * 1000.0)
-                        tf_err_orient_deg = angle_between_R(R_arm, R_pub)
-                else:
-                    motion_status = f"pick:{status_pick}"
+                    variant_used = label
+                    R_final, p_final = R_p, p_p
+                    break
+                self.get_logger().info(
+                    f"  variante '{label}' descartada en pick: {status_pick}")
+                motion_status = f"{label}_pick:{status_pick}"
+            else:
+                # Ninguna variante completó el movimiento (ningún 'break').
+                variant_used = "none"
+                if motion_status == "skipped":
+                    # Se llegó aquí sin haber asignado motion_status — lo que
+                    # significa que el último intento falló en approach.
+                    motion_status = f"{variants[-1][0]}_approach_failed"
+
+            if motion_status == "done":
+                time.sleep(0.4)  # esperar a que TF refleje la pose final
+                gripper = self.lookup_gripper_pose(timeout_s=1.0)
+                if gripper is not None:
+                    R_arm, p_arm = gripper
+                    tf_err_pos_mm = float(
+                        np.linalg.norm(p_arm - p_final) * 1000.0)
+                    tf_err_orient_deg = angle_between_R(R_arm, R_final)
 
         # ── Veredicto ────────────────────────────────────────────────────────
         passed = True
@@ -711,6 +883,7 @@ class TubeGraspTester(Node):
             pick_err_calc_mm=pick_err_mm,
             orient_err_calc_deg=orient_err_deg,
             motion_status=motion_status,
+            variant_used=variant_used,
             tf_err_pos_mm=tf_err_pos_mm,
             tf_err_orient_deg=tf_err_orient_deg,
             passed=passed,
@@ -733,6 +906,7 @@ def _failure(name, xyz, rpy, degenerate, reason) -> TestResult:
         pick_err_calc_mm=float("nan"),
         orient_err_calc_deg=float("nan"),
         motion_status="error",
+        variant_used="none",
         tf_err_pos_mm=float("nan"),
         tf_err_orient_deg=float("nan"),
         passed=False,
@@ -806,6 +980,7 @@ def _print_table(results: list[TestResult], check_arm: bool) -> None:
     if check_arm:
         cols += [
             ("motion",   10),
+            ("variant",   9),
             ("tf_pos mm", 11),
             ("tf_ori°",   10),
         ]
@@ -830,7 +1005,7 @@ def _print_table(results: list[TestResult], check_arm: bool) -> None:
         if check_arm:
             tfp = f"{r.tf_err_pos_mm:.1f}" if not math.isnan(r.tf_err_pos_mm) else "—"
             tfo = f"{r.tf_err_orient_deg:.2f}" if not math.isnan(r.tf_err_orient_deg) else "—"
-            row += [r.motion_status, tfp, tfo]
+            row += [r.motion_status, r.variant_used, tfp, tfo]
         status = "PASS" if r.passed else f"FAIL: {r.fail_reason[:18]}"
         row.append(status)
         for v, (_, w) in zip(row, cols):
@@ -843,11 +1018,18 @@ def _print_summary(results: list[TestResult]) -> None:
     total = len(results)
     passed = sum(1 for r in results if r.passed)
     deg = sum(1 for r in results if r.degenerate)
+    primary = sum(1 for r in results if r.variant_used == "primary")
+    alt = sum(1 for r in results if r.variant_used == "alt")
+    none = sum(1 for r in results
+               if r.variant_used == "none" and not r.degenerate)
     print()
     print(f"  TOTAL                : {total}")
     print(f"  PASS                 : {passed}  ({100 * passed / total:.0f}%)")
     print(f"  FAIL                 : {total - passed}")
     print(f"  Casos degenerados    : {deg}  (deben rechazarse por el nodo)")
+    if primary or alt or none:
+        print(f"  Brazo con variante   : primary={primary}  alt={alt}  "
+              f"ambas_fallaron={none}")
     if passed != total:
         print()
         print("  Fallos:")
@@ -992,6 +1174,7 @@ def main(argv: list[str] | None = None) -> int:
                             "yaw_deg", "degenerate", "grasp_received",
                             "approach_received", "pick_err_calc_mm",
                             "orient_err_calc_deg", "motion_status",
+                            "variant_used",
                             "tf_err_pos_mm", "tf_err_orient_deg", "status"])
                 for r in results:
                     w.writerow(r.csv_row)
