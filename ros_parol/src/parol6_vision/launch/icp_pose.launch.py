@@ -45,6 +45,7 @@ from launch.actions import DeclareLaunchArgument
 from launch.conditions import IfCondition
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
+from launch_ros.parameter_descriptions import ParameterValue
 
 
 def generate_launch_description() -> LaunchDescription:
@@ -70,6 +71,11 @@ def generate_launch_description() -> LaunchDescription:
     stl_path_arg = DeclareLaunchArgument(
         "stl_path", default_value="",
         description="Ruta al .stl del tubo (vacio => parol6_gazebo/meshes).")
+    icp_publish_legacy_pose_arg = DeclareLaunchArgument(
+        "icp_publish_legacy_pose", default_value="true",
+        description="Publicar Pose plana en /pose_target_cuaterniones. "
+                    "Ponlo a 'false' si tube_grasp_pose_node o un puente "
+                    "equivalente se hace cargo del topic legacy.")
     yolo_image_topic_arg = DeclareLaunchArgument(
         "yolo_image_topic",
         default_value="/navcam/left/navcam_left/image_raw",
@@ -116,9 +122,15 @@ def generate_launch_description() -> LaunchDescription:
         parameters=[
             LaunchConfiguration("params_file"),
             {
-                "cloud_source": LaunchConfiguration("cloud_source"),
-                "output_frame": LaunchConfiguration("output_frame"),
-                "stl_path":     LaunchConfiguration("stl_path"),
+                "cloud_source":        LaunchConfiguration("cloud_source"),
+                "output_frame":        LaunchConfiguration("output_frame"),
+                "stl_path":            LaunchConfiguration("stl_path"),
+                # Nombre del parámetro EN el nodo (sin prefijo icp_); el
+                # prefijo solo existe en el LaunchArg para evitar colisiones
+                # con el nombre homónimo del launch padre.
+                "publish_legacy_pose": ParameterValue(
+                    LaunchConfiguration("icp_publish_legacy_pose"),
+                    value_type=bool),
             },
         ],
     )
@@ -130,6 +142,7 @@ def generate_launch_description() -> LaunchDescription:
         cloud_source_arg,
         output_frame_arg,
         stl_path_arg,
+        icp_publish_legacy_pose_arg,
         yolo_image_topic_arg,
         yolo_executable_arg,
         yolo_node,

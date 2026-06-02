@@ -148,6 +148,14 @@ class IcpPoseEstimatorNode(Node):
         # ── Frecuencia de procesado ──────────────────────────────────────
         self.declare_parameter("process_rate", 2.0)        # Hz
 
+
+        # ── Edad máxima de la detección YOLO ─────────────────────────────
+        # Si la última detección recibida tiene más de esta edad (segundos),
+        # se considera obsoleta y NO se procesa. Esto evita que el ICP
+        # publique poses basadas en detecciones antiguas (e.g., del objeto
+        # del frame anterior) cuando YOLO ha dejado de publicar.
+        self.declare_parameter("detection_max_age_s", 1.0)
+
         # ── Lectura de parámetros ────────────────────────────────────────
         gp = self.get_parameter
         self.cloud_source   = gp("cloud_source").value
@@ -176,6 +184,7 @@ class IcpPoseEstimatorNode(Node):
         self.max_rmse       = float(gp("max_rmse").value)
         self.min_cloud_pts  = int(gp("min_cloud_points").value)
         process_rate        = float(gp("process_rate").value)
+        self.det_max_age_s  = float(gp("detection_max_age_s").value)
 
         # ═══════════════ NUBE DE REFERENCIA (del .stl ESCALADO) ════════════
         stl_path = gp("stl_path").value
@@ -209,6 +218,7 @@ class IcpPoseEstimatorNode(Node):
         self._cloud_frame: str = ""
         self._cloud_stamp = None
         self._last_detection = None
+        self._last_detection_time: float | None = None  # monotonic time
         self._last_image: np.ndarray | None = None
         self._last_image_stamp = None
 
@@ -313,8 +323,10 @@ class IcpPoseEstimatorNode(Node):
         """Solo CACHEA la detección; el procesado lo dispara el timer."""
         best = self._select_detection(msg)
         if best is not None:
+            import time as _time
             with self._lock:
                 self._last_detection = best
+                self._last_detection_time = _time.monotonic()
 
     # ══════════════════════════════════════════════════════════════════════
     # DISPARADORES DEL PIPELINE
@@ -349,21 +361,39 @@ class IcpPoseEstimatorNode(Node):
 
     def _pipeline_impl(self, log_prefix: str) -> tuple[bool, str]:
         # ── 0. Comprobaciones de disponibilidad ─────────────────────────────
+        import time as _time
         with self._lock:
             K = None if self._K is None else self._K.copy()
-            xyz = None if self._cloud_xyz is None else self._cloud_xyz.copy()
             cloud_frame = self._cloud_frame
             cloud_stamp = self._cloud_stamp
             detection = self._last_detection
+            detection_time = self._last_detection_time
 
         if K is None:
             return False, "sin camera_info todavia"
-        if xyz is None or xyz.shape[0] == 0:
-            return False, "sin nube de puntos todavia"
         if detection is None:
             return False, "sin deteccion YOLO todavia"
 
+        # Rechazar detecciones obsoletas: si YOLO ha dejado de publicar (p.ej.
+        # porque el objeto ha desaparecido o se ha respawneado en otra zona),
+        # no debemos seguir publicando poses basadas en la última detección
+        # válida, que ahora apunta a una región sin el objeto.
+        if detection_time is not None:
+            age = _time.monotonic() - detection_time
+            if age > self.det_max_age_s:
+                return False, (f"deteccion YOLO obsoleta ({age:.2f}s > "
+                               f"{self.det_max_age_s:.2f}s)")
+
         bbox_xyxy, score = detection
+
+        # ── Lectura de la nube cacheada ─────────────────────────────────────
+        with self._lock:
+            xyz = None if self._cloud_xyz is None else self._cloud_xyz.copy()
+            cloud_frame = self._cloud_frame
+            cloud_stamp = self._cloud_stamp
+
+        if xyz is None or xyz.shape[0] == 0:
+            return False, "sin nube de puntos todavia"
 
         # ── 1. Recorte de la nube con la caja 2D de YOLO ────────────────────
         cropped = icp_utils.crop_cloud_by_bbox(

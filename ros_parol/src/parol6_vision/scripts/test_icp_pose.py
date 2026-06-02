@@ -60,21 +60,84 @@ from ament_index_python.packages import get_package_share_directory
 from gazebo_msgs.msg import ModelStates
 from gazebo_msgs.srv import SpawnEntity, DeleteEntity
 from geometry_msgs.msg import PoseStamped
+from sensor_msgs.msg import CameraInfo, Image
 from std_msgs.msg import String
+from vision_msgs.msg import Detection2DArray
+
+try:
+    import cv2
+    from cv_bridge import CvBridge
+    _DEBUG_DEPS_OK = True
+except ImportError:
+    _DEBUG_DEPS_OK = False
+
+try:
+    import open3d as o3d
+    _O3D_OK = True
+except ImportError:
+    _O3D_OK = False
 
 
 # ════════════════════════════════════════════════════════════════════════════
 #  POSES DE TEST (por defecto). Cada entrada: (x, y, z, roll, pitch, yaw).
-#  Todas en el frame `world`. El convenio "tubo tumbado" usa pitch=π/2
-#  para que el eje largo del cilindro (Z del link) caiga sobre world X+.
+#  Todas en el frame `world`. Convenios:
+#    • pitch=π/2  → tubo horizontal: el eje largo (Z_link) cae en plano XY.
+#    • pitch=0    → tubo vertical:   el eje largo apunta a world +Z.
+#    • yaw rota el eje horizontal del cilindro alrededor de world Z.
+#
+#  ZONA ÚTIL DE LA NUBE (depende de num_disparities del stereo)
+#  El SGBM no calcula disparidad en los primeros `num_disparities` píxeles
+#  de la imagen rectificada (escalada). En la imagen original 1024x1024 eso
+#  son `2 * num_disparities` píxeles en u (lado izquierdo de la imagen óptica).
+#    • num_disparities=224 (default antiguo) → u_min ≈ 448  (44% imagen muerto)
+#    • num_disparities=96  (actual)          → u_min ≈ 192  (19% imagen muerto)
+#  Las poses se proyectan a u (px) según:
+#      u = fx · (0.075 - Y) / (0.75 - Z) + cx     [con fx=803, cx=512]
+#  Asegúrate de que u >= u_min para que el tubo caiga en la nube válida.
+#
+#  GRUPOS DE POSES — diseñados para AISLAR la causa de fallo:
+#    A) Posición XY (yaw=0, pitch=π/2 fijo): ¿depende del lugar?
+#    B) Yaw (XY fijo, pitch=π/2): ¿depende de la rotación del eje horizontal?
+#    C) Altura Z (XY y orientación fijos): ¿depende de la altura sobre el suelo?
+#    D) Pitch (XY fijo, yaw=0): ¿depende de la inclinación (horiz vs vert)?
+#    E) Edge cases conocidos del set original (regresión).
 # ════════════════════════════════════════════════════════════════════════════
 DEFAULT_TEST_POSES: list[tuple[str, float, float, float, float, float, float]] = [
-    # (name,            x,    y,    z,    R, P, Y)
-    ("horiz_left_X",    0.30, 0.30, 0.01, 0, math.pi / 2, 0.0),
-    ("horiz_left_X2",   0.35, 0.20, 0.01, 0, math.pi / 2, 0.0),
-    ("horiz_yaw_45",    0.25, 0.35, 0.01, 0, math.pi / 2, math.pi / 4),
-    ("horiz_yaw_90",    0.32, 0.28, 0.01, 0, math.pi / 2, math.pi / 2),
-    ("horiz_yaw_-45",   0.28, 0.32, 0.01, 0, math.pi / 2, -math.pi / 4),
+    # ── Grupo A: barrido de posición XY (tubo horizontal yaw=0) ──────────────
+    # (name,                  x,     y,     z,    R, P,           Y)
+    ("A1_center_xy",          0.50,  0.00, 0.01, 0, math.pi / 2, 0.0),
+    ("A2_right_y_neg",        0.30, -0.3, 0.01, 0, math.pi / 2, 0.0),
+    ("A3_left_y_pos",         0.30,  0.3, 0.01, 0, math.pi / 2, 0.0),
+    ("A4_far_x",              0.40,  0.00, 0.01, 0, math.pi / 2, 0.0),
+    ("A5_near_x",             0.22, 0.2, 0.01, 0, math.pi / 2, 0.0),
+
+    # ── Grupo B: barrido de yaw (XY fijo en zona útil, pitch=π/2) ────────────
+    ("B1_yaw_0",              0.30, 0.20, 0.01, 0, math.pi / 2,  0.0),
+    ("B2_yaw_30",             0.30, 0.20, 0.01, 0, math.pi / 2,  math.pi / 6),
+    ("B3_yaw_45",             0.30, 0.20, 0.01, 0, math.pi / 2,  math.pi / 4),
+    ("B4_yaw_60",             0.30, 0.20, 0.01, 0, math.pi / 2,  math.pi / 3),
+    ("B5_yaw_90",             0.30, 0.20, 0.01, 0, math.pi / 2,  math.pi / 2),
+    ("B6_yaw_135",            0.30, 0.20, 0.01, 0, math.pi / 2,  3 * math.pi / 4),
+    ("B7_yaw_neg_45",         0.30, 0.20, 0.01, 0, math.pi / 2, -math.pi / 4),
+    ("B8_yaw_neg_90",         0.30, 0.20, 0.01, 0, math.pi / 2, -math.pi / 2),
+
+    # ── Grupo C: barrido de altura Z (XY fijo, horizontal yaw=0) ─────────────
+    ("C1_z_0.01",             0.30, 0.20, 0.01, 0, math.pi / 2, 0.0),
+    ("C2_z_0.05",             0.30, 0.20, 0.05, 0, math.pi / 2, 0.0),
+    ("C3_z_0.10",             0.30, 0.20, 0.10, 0, math.pi / 2, 0.0),
+
+    # ── Grupo D: barrido de pitch (XY fijo, yaw=0) ───────────────────────────
+    # pitch=0 => tubo vertical (eje en world +Z); π/4 => 45°; π/2 => horizontal
+    ("D1_vertical_pitch_0",   0.30, 0.20, 0.10, 0, 0.0,         0.0),
+    ("D2_pitch_45",           0.30, 0.20, 0.05, 0, math.pi / 4, 0.0),
+    ("D3_pitch_90",           0.30, 0.20, 0.01, 0, math.pi / 2, 0.0),
+
+    # ── Grupo E: poses del set original (regresión, para no perder señal) ────
+    ("E1_horiz_right_X",      0.30, -0.20, 0.01, 0, math.pi / 2,  0.0),
+    ("E2_horiz_right_X2",     0.35, -0.15, 0.01, 0, math.pi / 2,  0.0),
+    ("E3_horiz_yaw_45",       0.25, -0.25, 0.01, 0, math.pi / 2,  math.pi / 4),
+    ("E4_horiz_yaw_90",       0.32, -0.18, 0.01, 0, math.pi / 2,  math.pi / 2),
+    ("E5_horiz_yaw_neg_45",   0.28, -0.22, 0.01, 0, math.pi / 2, -math.pi / 4),
 ]
 
 
@@ -173,9 +236,10 @@ class IcpPoseTester(Node):
     TUBE_ENTITY = "test_icp_tube"
     AXIS_OBJ = np.array([0.0, 0.0, 1.0])  # eje largo del cilindro en object frame
 
-    def __init__(self, mesh_path: str) -> None:
+    def __init__(self, mesh_path: str, debug_dir: Optional[str] = None) -> None:
         super().__init__("icp_pose_tester")
         self.mesh_path = mesh_path
+        self.debug_dir = debug_dir
 
         # ── Estado ────────────────────────────────────────────────────────────
         self._gt_pos: Optional[np.ndarray] = None
@@ -183,15 +247,53 @@ class IcpPoseTester(Node):
         self._estimates: list[tuple[float, np.ndarray, np.ndarray]] = []
         #     cada item = (t_recepcion, pos_world, R_world)
 
+        # ── Estado de debug ──────────────────────────────────────────────────
+        self._last_image: Optional[np.ndarray] = None
+        self._K: Optional[np.ndarray] = None
+        self._last_bbox: Optional[Tuple[float, float, float, float]] = None
+        self._bridge = CvBridge() if _DEBUG_DEPS_OK else None
+        # Cache de proyecciones del mesh en pose ICP para overlay
+        self._mesh_points_obj: Optional[np.ndarray] = None
+        if debug_dir and _DEBUG_DEPS_OK and _O3D_OK:
+            try:
+                # Cargar mesh con misma escala que el nodo ICP (no recentrar:
+                # debe quedar tal cual el visual del SDF, alineado al link)
+                mesh = o3d.io.read_triangle_mesh(self.mesh_path)
+                scale = np.array([0.022939, 0.022939, 0.033212])
+                verts = np.asarray(mesh.vertices) * scale
+                mesh.vertices = o3d.utility.Vector3dVector(verts)
+                bbox = mesh.get_axis_aligned_bounding_box()
+                mesh.translate(-bbox.get_center())
+                pcd = mesh.sample_points_uniformly(number_of_points=500)
+                self._mesh_points_obj = np.asarray(pcd.points)
+            except Exception as exc:
+                self.get_logger().warn(f"No se pudo cargar mesh para debug: {exc}")
+
         # ── Sub/Pub ───────────────────────────────────────────────────────────
         sensor_qos = QoSProfile(
             reliability=QoSReliabilityPolicy.RELIABLE,
             durability=QoSDurabilityPolicy.VOLATILE,
             depth=10,
         )
+        best_effort_qos = QoSProfile(
+            reliability=QoSReliabilityPolicy.BEST_EFFORT,
+            durability=QoSDurabilityPolicy.VOLATILE,
+            depth=5,
+        )
         self.create_subscription(ModelStates, "/model_states", self._gt_cb, 10)
         self.create_subscription(
             PoseStamped, "/vision/tube_pose", self._pose_cb, sensor_qos)
+        if debug_dir and _DEBUG_DEPS_OK:
+            self.create_subscription(
+                Image, "/navcam/left/navcam_left/image_raw",
+                self._image_cb, best_effort_qos)
+            self.create_subscription(
+                CameraInfo, "/navcam/left/navcam_left/camera_info",
+                self._ci_cb, best_effort_qos)
+            self.create_subscription(
+                Detection2DArray, "/vision/detections", self._det_cb, 10)
+            os.makedirs(debug_dir, exist_ok=True)
+            self.get_logger().info(f"DEBUG ON. Imágenes en: {debug_dir}")
         self._pub_activate = self.create_publisher(
             String, "/orchestrator/vision_activate", 10)
 
@@ -222,6 +324,195 @@ class IcpPoseTester(Node):
             t_w = np.array([p.x, p.y, p.z])
             R_w = quat_to_R(o.x, o.y, o.z, o.w)
         self._estimates.append((time.monotonic(), t_w, R_w))
+
+    def _image_cb(self, msg: Image) -> None:
+        if self._bridge is None:
+            return
+        try:
+            self._last_image = self._bridge.imgmsg_to_cv2(msg, "bgr8")
+        except Exception:
+            pass
+
+    def _ci_cb(self, msg: CameraInfo) -> None:
+        self._K = np.array(msg.k, dtype=np.float64).reshape(3, 3)
+
+    def _det_cb(self, msg: Detection2DArray) -> None:
+        if not msg.detections:
+            return
+        best = max(msg.detections,
+                   key=lambda d: d.results[0].hypothesis.score if d.results else 0)
+        cx, cy = best.bbox.center.position.x, best.bbox.center.position.y
+        sx, sy = best.bbox.size_x, best.bbox.size_y
+        self._last_bbox = (cx - sx/2, cy - sy/2, cx + sx/2, cy + sy/2)
+
+    # ── Debug: generación de imágenes anotadas ─────────────────────────────
+
+    @staticmethod
+    def _world_to_optical(p_world: np.ndarray) -> np.ndarray:
+        """Convierte un punto del frame `world` a `navcam_left_optical_frame`."""
+        return R_WORLD_OPTICAL.T @ (p_world - T_WORLD_LEFT)
+
+    def _project_world_point(self, p_world: np.ndarray
+                             ) -> Optional[Tuple[float, float, float]]:
+        """Proyecta (X,Y,Z) en world a (u, v, z_optical). None si detrás de cámara."""
+        if self._K is None:
+            return None
+        p_opt = self._world_to_optical(p_world)
+        if p_opt[2] <= 1e-6:
+            return None
+        u = self._K[0, 0] * p_opt[0] / p_opt[2] + self._K[0, 2]
+        v = self._K[1, 1] * p_opt[1] / p_opt[2] + self._K[1, 2]
+        return (float(u), float(v), float(p_opt[2]))
+
+    def save_debug_image(self, name: str, gt_pos: np.ndarray, gt_R: np.ndarray,
+                         estimates: list, result: PoseResult) -> None:
+        """Guarda una imagen anotada con bbox, GT, estimaciones y mesh proyectado.
+
+        Layout:
+          - rojo:   bbox de YOLO
+          - verde:  GT (centro + eje del cilindro de ±100mm)
+          - azul:   ICP estimado (cada muestra como punto pequeño; eje en azul oscuro)
+          - amarillo: nube del mesh proyectada usando la pose ICP MEDIA
+          - texto:  error_trans, error_axis, n_samples, status
+        """
+        if self.debug_dir is None or not _DEBUG_DEPS_OK:
+            return
+        if self._last_image is None or self._K is None:
+            self.get_logger().warn(
+                f"[debug {name}] sin imagen o sin K; no se genera imagen.")
+            return
+
+        img = self._last_image.copy()
+        h, w = img.shape[:2]
+
+        # ── GT: centro + eje del cilindro ──────────────────────────────────
+        gt_axis_world = gt_R @ self.AXIS_OBJ
+        gt_axis_world /= np.linalg.norm(gt_axis_world) + 1e-12
+        gt_tip_a = gt_pos + 0.10 * gt_axis_world
+        gt_tip_b = gt_pos - 0.10 * gt_axis_world
+        gt_pix_c = self._project_world_point(gt_pos)
+        gt_pix_a = self._project_world_point(gt_tip_a)
+        gt_pix_b = self._project_world_point(gt_tip_b)
+        if gt_pix_c:
+            uc, vc, _ = gt_pix_c
+            cv2.circle(img, (int(uc), int(vc)), 6, (0, 255, 0), -1)
+            cv2.putText(img, "GT", (int(uc) + 10, int(vc) - 10),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
+        if gt_pix_a and gt_pix_b:
+            cv2.line(img,
+                     (int(gt_pix_a[0]), int(gt_pix_a[1])),
+                     (int(gt_pix_b[0]), int(gt_pix_b[1])),
+                     (0, 255, 0), 2)
+
+        # ── ICP: cada muestra como punto pequeño + media + eje ─────────────
+        if estimates:
+            est_positions = np.stack([e[1] for e in estimates])
+            for p_world in est_positions:
+                px = self._project_world_point(p_world)
+                if px:
+                    cv2.circle(img, (int(px[0]), int(px[1])), 3,
+                               (255, 200, 0), -1)
+            mean_pos = est_positions.mean(axis=0)
+            # Promediar eje (con resolución de simetría ±)
+            axes = np.stack([e[2] @ self.AXIS_OBJ for e in estimates])
+            axes /= np.linalg.norm(axes, axis=1, keepdims=True) + 1e-12
+            signs = np.sign(axes @ axes[0])
+            signs[signs == 0] = 1.0
+            mean_axis = (axes * signs[:, None]).mean(axis=0)
+            mean_axis /= np.linalg.norm(mean_axis) + 1e-12
+            icp_tip_a = mean_pos + 0.10 * mean_axis
+            icp_tip_b = mean_pos - 0.10 * mean_axis
+            icp_pix_c = self._project_world_point(mean_pos)
+            icp_pix_a = self._project_world_point(icp_tip_a)
+            icp_pix_b = self._project_world_point(icp_tip_b)
+            if icp_pix_c:
+                uc, vc, _ = icp_pix_c
+                cv2.circle(img, (int(uc), int(vc)), 6, (255, 0, 0), -1)
+                cv2.putText(img, "ICP", (int(uc) + 10, int(vc) + 18),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 1)
+            if icp_pix_a and icp_pix_b:
+                cv2.line(img,
+                         (int(icp_pix_a[0]), int(icp_pix_a[1])),
+                         (int(icp_pix_b[0]), int(icp_pix_b[1])),
+                         (200, 0, 0), 2)
+
+            # Línea de error GT->ICP
+            if gt_pix_c and icp_pix_c:
+                cv2.line(img,
+                         (int(gt_pix_c[0]), int(gt_pix_c[1])),
+                         (int(icp_pix_c[0]), int(icp_pix_c[1])),
+                         (0, 165, 255), 1)
+
+            # ── Mesh proyectado en pose ICP media ──────────────────────────
+            if self._mesh_points_obj is not None:
+                # Transformar mesh: world = R_icp @ pts_obj + t_icp
+                mean_R = self._mean_rotation(estimates)
+                pts_world = (mean_R @ self._mesh_points_obj.T).T + mean_pos
+                # Proyectar cada punto
+                pts_opt = (R_WORLD_OPTICAL.T @ (pts_world - T_WORLD_LEFT).T).T
+                in_front = pts_opt[:, 2] > 1e-6
+                pts_fwd = pts_opt[in_front]
+                if pts_fwd.shape[0] > 0:
+                    us = self._K[0, 0] * pts_fwd[:, 0] / pts_fwd[:, 2] + self._K[0, 2]
+                    vs = self._K[1, 1] * pts_fwd[:, 1] / pts_fwd[:, 2] + self._K[1, 2]
+                    valid = (us >= 0) & (us < w) & (vs >= 0) & (vs < h)
+                    for u_, v_ in zip(us[valid].astype(int), vs[valid].astype(int)):
+                        cv2.circle(img, (int(u_), int(v_)), 1, (0, 255, 255), -1)
+
+        # ── Bbox YOLO ──────────────────────────────────────────────────────
+        if self._last_bbox is not None:
+            x1, y1, x2, y2 = [int(c) for c in self._last_bbox]
+            cv2.rectangle(img, (x1, y1), (x2, y2), (0, 0, 255), 2)
+
+        # ── Texto con métricas ─────────────────────────────────────────────
+        status = ("PASS" if result.passed else
+                  ("FAIL_AX" if not result.passed_axis else "FAIL_T"))
+        lines = [
+            f"{name}  [{status}]",
+            f"GT world: ({gt_pos[0]:+.3f}, {gt_pos[1]:+.3f}, {gt_pos[2]:+.3f})",
+            f"e_trans:  {result.error_trans_mm:.2f} mm  (criterio <5)",
+            f"e_axis:   {result.error_axis_deg:.2f} deg  (criterio <5)",
+            f"n_recv:   {result.n_received}/{result.n_samples}",
+            f"sigma_t:  {result.repeat_trans_mm:.2f} mm",
+            f"sigma_ax: {result.repeat_axis_deg:.2f} deg",
+        ]
+        # Fondo semi-transparente para legibilidad
+        overlay = img.copy()
+        cv2.rectangle(overlay, (5, 5), (430, 25 + 20 * len(lines)),
+                      (0, 0, 0), -1)
+        img = cv2.addWeighted(overlay, 0.5, img, 0.5, 0)
+        for i, ln in enumerate(lines):
+            color = (0, 255, 0) if (i == 0 and result.passed) else (
+                (0, 0, 255) if i == 0 else (255, 255, 255))
+            cv2.putText(img, ln, (15, 25 + 20 * i),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
+
+        # Leyenda
+        legend_y = h - 90
+        for txt, color in [("GT (verde) + eje", (0, 255, 0)),
+                           ("ICP media + muestras", (255, 0, 0)),
+                           ("Mesh proyectado", (0, 255, 255)),
+                           ("Bbox YOLO", (0, 0, 255))]:
+            cv2.putText(img, txt, (15, legend_y),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.45, color, 1)
+            legend_y += 18
+
+        path = os.path.join(self.debug_dir, f"{name}.png")
+        cv2.imwrite(path, img)
+        self.get_logger().info(f"[debug] guardado {path}")
+
+    @staticmethod
+    def _mean_rotation(estimates: list) -> np.ndarray:
+        """Aproxima la rotación media de las muestras ICP (cuat → matriz)."""
+        Rs = np.stack([e[2] for e in estimates])
+        # Promediar matrices y reortogonalizar con SVD (proyección a SO(3))
+        Rbar = Rs.mean(axis=0)
+        U, _, Vt = np.linalg.svd(Rbar)
+        Rm = U @ Vt
+        if np.linalg.det(Rm) < 0:
+            U[:, -1] *= -1
+            Rm = U @ Vt
+        return Rm
 
     # ── Activación de YOLO ───────────────────────────────────────────────────
 
@@ -331,16 +622,43 @@ class IcpPoseTester(Node):
         if self._gt_pos is None:
             self.get_logger().warn(f"No GT received for '{name}' after 3s")
 
-        # 4) esperar las N estimaciones (o timeout)
+        # 3b) periodo de gracia: descartar estimaciones que el ICP haya producido
+        #     con la detección YOLO ANTIGUA (del tubo anterior). Sin esto, las
+        #     primeras N muestras pueden corresponder a la pose del tubo del
+        #     test previo, ya que YOLO/ICP funcionan en pipeline a 2 Hz y no
+        #     se invalidan al borrar+spawnear.
+        grace_period_s = 2.5
+        t_grace_end = time.monotonic() + grace_period_s
+        while rclpy.ok() and time.monotonic() < t_grace_end:
+            rclpy.spin_once(self, timeout_sec=0.1)
+        # Descartar todas las estimaciones recibidas durante el periodo de gracia
+        n_discarded = len(self._estimates)
+        self._estimates.clear()
+        if n_discarded > 0:
+            self.get_logger().info(
+                f"Descartadas {n_discarded} estimaciones del periodo de gracia "
+                f"(probablemente del tubo anterior).")
+
+        # 4) esperar las N estimaciones NUEVAS (o timeout)
         t_deadline = spawn_time + timeout_s
         while rclpy.ok() and time.monotonic() < t_deadline:
             rclpy.spin_once(self, timeout_sec=0.1)
             if len(self._estimates) >= n_samples:
                 break
 
-        return self._compute_metrics(
+        result = self._compute_metrics(
             name, (x, y, z), (roll, pitch, yaw), n_samples,
             trans_thresh_mm, axis_thresh_deg, spawn_time)
+
+        # 5) Guardar imagen de debug si está habilitado
+        if self.debug_dir and self._gt_pos is not None and self._gt_R is not None:
+            try:
+                self.save_debug_image(name, self._gt_pos, self._gt_R,
+                                      list(self._estimates), result)
+            except Exception as exc:
+                self.get_logger().warn(f"[debug {name}] fallo guardando: {exc}")
+
+        return result
 
     # ── Cómputo de métricas ──────────────────────────────────────────────────
 
@@ -594,6 +912,9 @@ def main(argv: list[str] | None = None) -> int:
                         help="YAML con poses personalizadas (formato {poses: [...]})")
     parser.add_argument("--no-auto-activate", action="store_true",
                         help="No publicar /orchestrator/vision_activate al arrancar")
+    parser.add_argument("--debug-dir", type=str, default=None,
+                        help="Directorio donde guardar imágenes anotadas de debug "
+                             "(bbox YOLO, GT, ICP, mesh proyectado, métricas)")
     args = parser.parse_args(argv)
 
     try:
@@ -608,7 +929,7 @@ def main(argv: list[str] | None = None) -> int:
         poses = DEFAULT_TEST_POSES
 
     rclpy.init()
-    tester = IcpPoseTester(mesh_path)
+    tester = IcpPoseTester(mesh_path, debug_dir=args.debug_dir)
 
     try:
         if not args.no_auto_activate:
