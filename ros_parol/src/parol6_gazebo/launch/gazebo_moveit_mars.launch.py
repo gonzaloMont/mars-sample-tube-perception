@@ -41,6 +41,13 @@ def launch_setup(context, *args, **kwargs):
     camera_x    = LaunchConfiguration('camera_x').perform(context)
     camera_y    = LaunchConfiguration('camera_y').perform(context)
     camera_z    = LaunchConfiguration('camera_z').perform(context)
+    navcam_pose = LaunchConfiguration('navcam_pose').perform(context)
+    mast_x      = LaunchConfiguration('mast_x').perform(context)
+    mast_y      = LaunchConfiguration('mast_y').perform(context)
+    mast_z      = LaunchConfiguration('mast_z').perform(context)
+    mast_roll   = LaunchConfiguration('mast_roll').perform(context)
+    mast_pitch  = LaunchConfiguration('mast_pitch').perform(context)
+    mast_yaw    = LaunchConfiguration('mast_yaw').perform(context)
 
     world_file = os.path.join(pkg_parol6_gazebo, 'worlds', 'mars', 'mars.world')
 
@@ -198,14 +205,33 @@ def launch_setup(context, *args, **kwargs):
         ]
 
     else:  # camera_type == 'navcam'
-        # NavCam estéreo: misma posición y orientación que la cámara cenital
-        # El TF base_link→navcam_rig_link es el offset de la cámara respecto al robot en world
+        # NavCam estéreo. Dos posiciones seleccionables con navcam_pose:
+        #   'original' -> cenital, misma pose que la cámara overhead (mira al suelo)
+        #   'mast'     -> mástil tipo rover de Marte (retrasada, elevada e inclinada)
+        #
+        # En cada caso hay que mantener coherentes DOS poses:
+        #   - rig_R/P/Y + spawn_x/y/z : pose del rig en world (donde Gazebo renderiza)
+        #   - rig_b{x,y,z} + rig_R/P/Y: TF base_link -> navcam_rig_link (lo que ve ROS)
+        if navcam_pose == 'mast':
+            # Pose del rig EN EL FRAME base_link (origen en la base del brazo, en el suelo)
+            rig_bx, rig_by, rig_bz = mast_x, mast_y, mast_z
+            rig_R,  rig_P,  rig_Y  = mast_roll, mast_pitch, mast_yaw
+            # Pose de spawn en world = pose del robot + offset en base_link
+            # (se asume el robot con orientación identidad respecto al world)
+            spawn_x = str(float(robot_x) + float(rig_bx))
+            spawn_y = str(float(robot_y) + float(rig_by))
+            spawn_z = str(float(robot_z) + float(rig_bz))
+        else:  # 'original'
+            # Cenital: misma posición y orientación que la cámara overhead
+            spawn_x, spawn_y, spawn_z = camera_x, camera_y, camera_z
+            rig_R, rig_P, rig_Y = '0.0', '1.5707963267949', '0.0'
+            rig_bx = str(float(camera_x) - float(robot_x))
+            rig_by = str(float(camera_y) - float(robot_y))
+            rig_bz = str(float(camera_z) - float(robot_z))
+
         cam_urdf_path, _ = _write_urdf_tmp(
             os.path.join(pkg_parol6_desc, 'urdf', 'navcam_stereo.urdf.xacro')
         )
-        tf_x = str(float(camera_x) - float(robot_x))
-        tf_y = str(float(camera_y) - float(robot_y))
-        tf_z = str(float(camera_z) - float(robot_z))
         actions += [
             Node(
                 package='gazebo_ros',
@@ -213,16 +239,16 @@ def launch_setup(context, *args, **kwargs):
                 arguments=[
                     '-entity', 'navcam_stereo',
                     '-file', cam_urdf_path,
-                    '-x', camera_x, '-y', camera_y, '-z', camera_z,
-                    '-R', '0.0', '-P', '1.5707963267949', '-Y', '0.0',
+                    '-x', spawn_x, '-y', spawn_y, '-z', spawn_z,
+                    '-R', rig_R, '-P', rig_P, '-Y', rig_Y,
                     '-timeout', '120',
                 ],
                 output='screen',
             ),
-            # base_link → navcam_rig_link  (offset cámara - robot en world, pitch hacia abajo)
+            # base_link → navcam_rig_link  (pose del rig respecto a la base del brazo)
             Node(package='tf2_ros', executable='static_transform_publisher',
-                 arguments=['--x', tf_x, '--y', tf_y, '--z', tf_z,
-                            '--roll', '0.0', '--pitch', '1.5707963267949', '--yaw', '0.0',
+                 arguments=['--x', rig_bx, '--y', rig_by, '--z', rig_bz,
+                            '--roll', rig_R, '--pitch', rig_P, '--yaw', rig_Y,
                             '--frame-id', 'base_link',
                             '--child-frame-id', 'navcam_rig_link']),
             # navcam_rig_link → navcam_left_link  (navcam_left_joint origin)
@@ -259,7 +285,8 @@ def launch_setup(context, *args, **kwargs):
 def generate_launch_description():
     # Uso:
     #   ros2 launch parol6_gazebo gazebo_moveit_mars.launch.py
-    #   ros2 launch parol6_gazebo gazebo_moveit_mars.launch.py camera:=navcam
+    #   ros2 launch parol6_gazebo gazebo_moveit_mars.launch.py camera:=navcam                       # NavCam en mástil (por defecto)
+    #   ros2 launch parol6_gazebo gazebo_moveit_mars.launch.py camera:=navcam navcam_pose:=original  # NavCam cenital
     #   ros2 launch parol6_gazebo gazebo_moveit_mars.launch.py camera:=overhead camera_x:=10.5 camera_y:=5.0 camera_z:=0.75
     #   ros2 launch parol6_gazebo gazebo_moveit_mars.launch.py robot_x:=10.311 robot_y:=5.066 robot_z:=0.8
 
@@ -283,5 +310,19 @@ def generate_launch_description():
         DeclareLaunchArgument('camera_x', default_value='0.2',  description='Posición X de la cámara cenital (solo con camera:=overhead)'),
         DeclareLaunchArgument('camera_y', default_value='0.0',  description='Posición Y de la cámara cenital (solo con camera:=overhead)'),
         DeclareLaunchArgument('camera_z', default_value='0.75', description='Posición Z de la cámara cenital (solo con camera:=overhead)'),
+        # --- Selección de pose de la NavCam (solo con camera:=navcam) ---
+        DeclareLaunchArgument(
+            'navcam_pose', default_value='mast',
+            description="Pose de la NavCam: 'mast' (mástil tipo rover de Marte, por defecto) o 'original' (cenital)",
+        ),
+        # Pose del mástil en el frame base_link (origen en la base del brazo, en el suelo).
+        # Ojo a la convención: en URDF/ROS (REP-103) la cámara mira por +X y un pitch POSITIVO
+        # inclina la vista hacia ABAJO. Por eso 0.91 rad (= +52°) apunta hacia el suelo.
+        DeclareLaunchArgument('mast_x',     default_value='-0.3', description='X del rig de la NavCam en mástil (respecto a base_link)'),
+        DeclareLaunchArgument('mast_y',     default_value='-0.3', description='Y del rig de la NavCam en mástil (respecto a base_link)'),
+        DeclareLaunchArgument('mast_z',     default_value='1.11', description='Z del rig de la NavCam en mástil (respecto a base_link)'),
+        DeclareLaunchArgument('mast_roll',  default_value='0.0',  description='Roll del rig en mástil [rad]'),
+        DeclareLaunchArgument('mast_pitch', default_value='0.91', description='Pitch del rig en mástil [rad] (+52°, inclinado hacia abajo)'),
+        DeclareLaunchArgument('mast_yaw',   default_value='0.3',  description='Yaw del rig en mástil [rad] (+17°, girado a la izquierda)'),
         OpaqueFunction(function=launch_setup),
     ])
