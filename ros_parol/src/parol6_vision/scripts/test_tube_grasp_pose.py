@@ -133,9 +133,9 @@ DEFAULT_TEST_POSES: list[tuple[str, float, float, float, float, float, float]] =
     ("diag_yaw_-60",            0.18, -0.08, 0.04, 0.0,         math.pi / 2,                   -math.pi / 3),
 
     # ── Diferentes alturas del tubo (Z) ──────────────────────────────────
-    ("height_low",              0.20, 0.00, 0.02, 0.0,          math.pi / 2,                    0.0),
-    ("height_high",             0.20, 0.00, 0.10, 0.0,          math.pi / 2,                    0.0),
-    ("height_very_high",        0.20, 0.00, 0.15, 0.0,          math.pi / 2,                    0.0),
+    ("height_low",              0.25, 0.00, 0.02, 0.0,          math.pi / 2,                    0.0),
+    ("height_high",             0.25, 0.00, 0.10, 0.0,          math.pi / 2,                    0.0),
+    ("height_very_high",        0.30, 0.00, 0.15, 0.0,          math.pi / 2,                    0.0),
 
     # ── Tilts (eje del tubo NO perfectamente horizontal) ─────────────────
     ("tilt_+10_deg",            0.20, 0.00, 0.05, 0.0,          math.pi / 2 + math.radians(10), 0.0),
