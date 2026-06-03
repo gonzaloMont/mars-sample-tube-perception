@@ -260,7 +260,7 @@ def launch_setup(context, *args, **kwargs):
 
 def generate_launch_description():
     # Uso:
-    #   ros2 launch parol6_gazebo gazebo_moveit.launch.py
+    #   ros2 launch parol6_gazebo gazebo_moveit.launch.py                 # camera:=navcam (por defecto)
     #   ros2 launch parol6_gazebo gazebo_moveit.launch.py camera:=navcam                       # NavCam en mástil (por defecto)
     #   ros2 launch parol6_gazebo gazebo_moveit.launch.py camera:=navcam navcam_pose:=original  # NavCam cenital
     #   ros2 launch parol6_gazebo gazebo_moveit.launch.py camera:=overhead rviz:=true gripper:=true ik:=true
@@ -273,7 +273,7 @@ def generate_launch_description():
 
     return LaunchDescription([
         DeclareLaunchArgument(
-            'camera', default_value='overhead',
+            'camera', default_value='navcam',
             description="Tipo de cámara: 'overhead' (cenital independiente) o 'navcam' (estéreo en base_link)",
         ),
         DeclareLaunchArgument('rviz',    default_value='false', description='Lanzar RViz con la configuración de MoveIt'),
