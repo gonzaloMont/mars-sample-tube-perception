@@ -78,7 +78,7 @@ class StereoPointCloudNode(Node):
 
         # Filtros de profundidad
         self.declare_parameter('min_depth',    0.30)   # metros
-        self.declare_parameter('max_depth',    1.0)   # metros
+        self.declare_parameter('max_depth',    2.0)   # metros
         self.declare_parameter('scale_factor', 0.5)    # factor de reducción
 
         # Filtro WLS post-procesado (requiere opencv-contrib)
