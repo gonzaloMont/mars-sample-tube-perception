@@ -1,5 +1,13 @@
+<?xml version="1.0" ?>
 <sdf version='1.7'>
   <world name='default'>
+    <gui fullscreen='0'>
+      <camera name='user_camera'>
+        <pose>1.28444 -1.29501 0.573552 0 0.275643 2.35619</pose>
+        <view_controller>orbit</view_controller>
+        <projection_type>perspective</projection_type>
+      </camera>
+    </gui>
     <light name='sun' type='directional'>
       <cast_shadows>1</cast_shadows>
       <pose>0 0 10 0 -0 0</pose>

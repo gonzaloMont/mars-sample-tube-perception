@@ -2,6 +2,14 @@
 <sdf version="1.6">
   <world name="default">
 
+    <gui fullscreen='0'>
+      <camera name='user_camera'>
+        <pose>1.28444 -1.29501 0.573552 0 0.275643 2.35619</pose>
+        <view_controller>orbit</view_controller>
+        <projection_type>perspective</projection_type>
+      </camera>
+    </gui>
+
     <!-- cambios para trabajar con menos recursos -->
     <physics type="ode">
       <max_step_size>0.005</max_step_size>
