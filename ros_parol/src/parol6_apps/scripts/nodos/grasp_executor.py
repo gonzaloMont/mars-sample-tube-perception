@@ -62,8 +62,14 @@ PARÁMETROS
   try_alt_on_failure       default True       fallback alt si la primary falla
   require_approach_success default True       si False, intenta pick aunque
                                               approach haya fallado
-  pose_freshness_s         default 5.0   s   ignorar poses más viejas que esto
-                                              (evita ejecutar grasps obsoletos)
+  pose_freshness_s         default 5.0   s   ignorar poses recibidas hace más
+                                              de este tiempo (evita ejecutar
+                                              grasps obsoletos). Se mide con
+                                              time.monotonic() del nodo, NO
+                                              con `header.stamp`, para no
+                                              romperse si la pose viene en
+                                              sim_time. <= 0 desactiva el
+                                              chequeo.
 """
 
 from __future__ import annotations
@@ -146,11 +152,17 @@ class GraspExecutor(Node):
         self._client_group  = ReentrantCallbackGroup()
 
         # ── Estado: poses recibidas (cacheadas) ──────────────────────────────
+        # Junto a cada pose guardamos el `time.monotonic()` del momento en
+        # que llegó. Eso evita depender del `header.stamp`, que puede venir
+        # en sim_time, en wall-time o vacío según quién la publique — algo
+        # que dio falsos positivos de "stale_pose" en sim con sim_time != ROS.
         self._lock = threading.Lock()
         self._last_pick:         Optional[PoseStamped] = None
         self._last_approach:     Optional[PoseStamped] = None
         self._last_pick_alt:     Optional[PoseStamped] = None
         self._last_approach_alt: Optional[PoseStamped] = None
+        self._last_pick_recv_t:     Optional[float] = None
+        self._last_approach_recv_t: Optional[float] = None
         self._busy = False
 
         # ── Subscriptores ────────────────────────────────────────────────────
@@ -196,10 +208,12 @@ class GraspExecutor(Node):
     def _pick_cb(self, msg: PoseStamped) -> None:
         with self._lock:
             self._last_pick = msg
+            self._last_pick_recv_t = time.monotonic()
 
     def _approach_cb(self, msg: PoseStamped) -> None:
         with self._lock:
             self._last_approach = msg
+            self._last_approach_recv_t = time.monotonic()
 
     def _pick_alt_cb(self, msg: PoseStamped) -> None:
         with self._lock:
@@ -331,6 +345,8 @@ class GraspExecutor(Node):
             approach = self._last_approach
             pick_alt = self._last_pick_alt
             approach_alt = self._last_approach_alt
+            pick_recv_t = self._last_pick_recv_t
+            approach_recv_t = self._last_approach_recv_t
 
         if pick is None or approach is None:
             response.success = False
@@ -338,15 +354,21 @@ class GraspExecutor(Node):
             self._publish_status(response.message)
             return response
 
-        # 3) Comprobar frescura (ignorar poses muy antiguas).
+        # 3) Comprobar frescura: cuánto tiempo hace que LLEGÓ la pose al nodo
+        # (NO usamos `header.stamp` porque puede venir en sim_time o en cero
+        # y dar falsos positivos al compararlo con el clock del executor).
+        # `pose_freshness_s <= 0` desactiva el chequeo.
         if self._pose_freshness > 0.0:
-            now_s = self.get_clock().now().nanoseconds * 1e-9
-            for label, ps in (("pick", pick), ("approach", approach)):
-                t = ps.header.stamp.sec + ps.header.stamp.nanosec * 1e-9
-                if t > 0 and (now_s - t) > self._pose_freshness:
+            now_mono = time.monotonic()
+            for label, recv_t in (("pick", pick_recv_t),
+                                  ("approach", approach_recv_t)):
+                if recv_t is None:
+                    continue
+                age = now_mono - recv_t
+                if age > self._pose_freshness:
                     response.success = False
                     response.message = (f"failed:stale_pose:{label}"
-                                        f"(age={now_s - t:.1f}s)")
+                                        f"(age={age:.1f}s)")
                     self._publish_status(response.message)
                     return response
 
