@@ -44,7 +44,7 @@
         <pose>-0.010497 -0.010489 -0.093000 0 0 0</pose>
         <geometry>
           <mesh>
-            <uri>file:///home/gonzalomontanagomez/parol6_ws/src/PAROL6/ros_parol/src/parol6_gazebo/meshes/mars2020tube.stl</uri>
+            <uri>model://parol6_gazebo/meshes/mars2020tube.stl</uri>
             <scale>0.022939 0.022939 0.033212</scale>
           </mesh>
         </geometry>
