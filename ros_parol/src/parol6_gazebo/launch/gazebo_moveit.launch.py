@@ -266,10 +266,15 @@ def generate_launch_description():
     #   ros2 launch parol6_gazebo gazebo_moveit.launch.py camera:=overhead rviz:=true gripper:=true ik:=true
 
     pkg_parol6_desc = get_package_share_directory('parol6_description')
-    if 'GAZEBO_MODEL_PATH' in os.environ:
-        os.environ['GAZEBO_MODEL_PATH'] += ':' + os.path.join(pkg_parol6_desc, '..')
-    else:
-        os.environ['GAZEBO_MODEL_PATH'] = os.path.join(pkg_parol6_desc, '..')
+    # model://<pkg>/... necesita el 'share' de <pkg> en GAZEBO_MODEL_PATH. Con
+    # instalación aislada añadimos el de parol6_description Y el de parol6_gazebo
+    # (este provee meshes/mars2020tube.stl); sin él el visual del tubo no carga.
+    extra_model_paths = [
+        os.path.join(pkg_parol6_desc, '..'),
+        os.path.join(get_package_share_directory('parol6_gazebo'), '..'),
+    ]
+    prev = os.environ.get('GAZEBO_MODEL_PATH', '')
+    os.environ['GAZEBO_MODEL_PATH'] = ':'.join(p for p in [prev, *extra_model_paths] if p)
 
     return LaunchDescription([
         DeclareLaunchArgument(

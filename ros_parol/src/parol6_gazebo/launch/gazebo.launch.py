@@ -15,11 +15,15 @@ def generate_launch_description():
     pkg_gazebo_ros = get_package_share_directory('gazebo_ros')
     world_file = os.path.join(pkg_parol6_gazebo, 'worlds', 'parol6.world')
 
-    # Ensure gazebo can find models in the share directory
-    if 'GAZEBO_MODEL_PATH' in os.environ:
-        os.environ['GAZEBO_MODEL_PATH'] = os.environ['GAZEBO_MODEL_PATH'] + ':' + os.path.join(pkg_parol6_desc, '..')
-    else:
-        os.environ['GAZEBO_MODEL_PATH'] = os.path.join(pkg_parol6_desc, '..')
+    # model://<pkg>/... necesita el 'share' de <pkg> en GAZEBO_MODEL_PATH. Con
+    # instalación aislada añadimos el de parol6_description Y el de parol6_gazebo
+    # (este provee meshes/mars2020tube.stl); sin él el visual del tubo no carga.
+    extra_model_paths = [
+        os.path.join(pkg_parol6_desc, '..'),
+        os.path.join(pkg_parol6_gazebo, '..'),
+    ]
+    prev = os.environ.get('GAZEBO_MODEL_PATH', '')
+    os.environ['GAZEBO_MODEL_PATH'] = ':'.join(p for p in [prev, *extra_model_paths] if p)
 
     # Procesar el xacro que incluye el URDF + ros2_control + gazebo plugin
     xacro_file = os.path.join(pkg_parol6_desc, 'urdf', 'parol6_gazebo.xacro')
