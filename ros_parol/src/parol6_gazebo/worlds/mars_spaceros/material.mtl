@@ -1,0 +1,10 @@
+# Material del terreno marciano (atlas de textura fusionado desde el .glb de Space ROS).
+# Mismo estilo que worlds/mars_optimized/mars_patch.mtl: difuso pleno (Kd 1 1 1) para
+# que la textura se vea a brillo completo, sin especular (regolito mate), illum 1.
+newmtl Material
+Ka 0.4 0.4 0.4
+Kd 1.0 1.0 1.0
+Ks 0.0 0.0 0.0
+d 1.0
+illum 1
+map_Kd Material.png
