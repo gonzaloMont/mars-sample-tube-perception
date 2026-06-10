@@ -69,7 +69,14 @@ def launch_setup(context, *args, **kwargs):
         PythonLaunchDescriptionSource(
             os.path.join(pkg_gazebo_ros, 'launch', 'gazebo.launch.py')
         ),
-        launch_arguments={'world': world_file, 'paused': 'false'}.items(),
+        # gui:=false arranca solo gzserver (sin la ventana 3D de Gazebo). En una iGPU
+        # débil, gzclient compite por la GPU con el renderizado de los sensores de
+        # cámara estéreo; cerrarlo sube el RTF. Visualiza en RViz (rviz:=true).
+        launch_arguments={
+            'world': world_file,
+            'paused': 'false',
+            'gui': LaunchConfiguration('gui').perform(context),
+        }.items(),
     )
 
     spawn_entity = Node(
@@ -230,8 +237,12 @@ def launch_setup(context, *args, **kwargs):
             rig_by = str(float(camera_y) - float(robot_y))
             rig_bz = str(float(camera_z) - float(robot_z))
 
+        # Resolución de las navcam en sim (default 512 en este mundo para subir el
+        # RTF en la iGPU; no afecta a otros launches, que usan el default 1024 del xacro).
+        cam_res = LaunchConfiguration('cam_res').perform(context)
         cam_urdf_path, _ = _write_urdf_tmp(
-            os.path.join(pkg_parol6_desc, 'urdf', 'navcam_stereo.urdf.xacro')
+            os.path.join(pkg_parol6_desc, 'urdf', 'navcam_stereo.urdf.xacro'),
+            mappings={'cam_width': cam_res, 'cam_height': cam_res},
         )
         actions += [
             Node(
@@ -310,6 +321,8 @@ def generate_launch_description():
             'camera', default_value='navcam',
             description="Tipo de cámara: 'overhead' (cenital independiente) o 'navcam' (estéreo en base_link)",
         ),
+        DeclareLaunchArgument('gui',     default_value='true',  description='Arrancar la GUI de Gazebo (gzclient). gui:=false libera la iGPU y sube el RTF; visualiza en RViz'),
+        DeclareLaunchArgument('cam_res', default_value='512',   description='Resolución de las navcam estéreo en sim (px, cuadrada). 512 sube mucho el RTF en iGPU; 1024 = máxima resolución estéreo'),
         DeclareLaunchArgument('rviz',    default_value='false', description='Lanzar RViz con la configuración de MoveIt'),
         DeclareLaunchArgument('gripper', default_value='false', description='Lanzar el nodo de gripper virtual'),
         DeclareLaunchArgument('ik',      default_value='false', description='Lanzar el nodo de cinemática inversa'),

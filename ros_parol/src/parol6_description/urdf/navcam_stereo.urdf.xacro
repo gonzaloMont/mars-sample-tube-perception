@@ -18,6 +18,13 @@
 -->
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="navcam_stereo">
 
+  <!-- Resolución de las cámaras (parametrizable desde el launch). Default 1024²
+       para no cambiar el comportamiento de los launches que no la pasan. Bajarla
+       (p.ej. 512²) reduce mucho la carga de GPU y sube el RTF en iGPUs modestas;
+       los intrínsecos (fx,fy,cx,cy) escalan con la resolución, no hay que recalibrar. -->
+  <xacro:arg name="cam_width"  default="1024"/>
+  <xacro:arg name="cam_height" default="1024"/>
+
   <gazebo>
     <static>true</static>
   </gazebo>
@@ -127,8 +134,8 @@
       <camera name="navcam_left_camera">
         <horizontal_fov>1.1344640137963142</horizontal_fov>
         <image>
-          <width>1024</width>
-          <height>1024</height>
+          <width>$(arg cam_width)</width>
+          <height>$(arg cam_height)</height>
           <format>L8</format>
         </image>
         <clip>
@@ -155,8 +162,8 @@
       <camera name="navcam_right_camera">
         <horizontal_fov>1.1344640137963142</horizontal_fov>
         <image>
-          <width>1024</width>
-          <height>1024</height>
+          <width>$(arg cam_width)</width>
+          <height>$(arg cam_height)</height>
           <format>L8</format>
         </image>
         <clip>
