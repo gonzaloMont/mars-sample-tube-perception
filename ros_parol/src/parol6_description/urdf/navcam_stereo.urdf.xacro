@@ -11,6 +11,13 @@
     /navcam/left/navcam_left/camera_info    (sensor_msgs/CameraInfo)
     /navcam/right/navcam_right/image_raw    (sensor_msgs/Image)
     /navcam/right/navcam_right/camera_info  (sensor_msgs/CameraInfo)
+
+  Topics ADICIONALES de profundidad ground-truth (namespace gt_depth, SOLO
+  para la generación de dataset sintético; ver sensores depth al final):
+    /navcam/left/navcam_left/gt_depth/depth/image_raw    (32FC1, metros)
+    /navcam/left/navcam_left/gt_depth/camera_info
+    /navcam/right/navcam_right/gt_depth/depth/image_raw  (32FC1, metros)
+    /navcam/right/navcam_right/gt_depth/camera_info
   Frames TF (publicados por static_transform_publisher en el launch):
     navcam_rig_link
     navcam_left_link / navcam_left_optical_frame
@@ -171,6 +178,86 @@
         <camera_name>navcam_right</camera_name>
         <frame_name>navcam_right_optical_frame</frame_name>
         <hack_baseline>0.0</hack_baseline>
+      </plugin>
+    </sensor>
+  </gazebo>
+
+  <!-- ═══════════════════════════════════════════════════════════════════
+       Sensores de profundidad GROUND-TRUTH (SOLO generación de dataset).
+
+       Son ADITIVOS: no sustituyen a las cámaras RGB de arriba ni alteran
+       sus topics. Cada sensor depth está co-localizado con su NavCam
+       (mismo link, mismo fov, misma resolución, mismos clips), de modo que
+       el píxel (u,v) del RGB corresponde al mismo píxel de la profundidad.
+
+       Publican bajo el namespace nuevo `gt_depth`:
+         /navcam/<side>/navcam_<side>/gt_depth/depth/image_raw  (32FC1, m)
+         /navcam/<side>/navcam_<side>/gt_depth/camera_info
+       (el plugin publica además un image_raw RGB propio bajo gt_depth/ y
+       una nube gt_depth/points; no se usan, pero son topics nuevos y no
+       colisionan con nada).
+
+       El pipeline real de inferencia NO los consume: la nube de puntos
+       real sale de stereo_pointcloud_node.py, y el topic de profundidad
+       que ICP tiene configurado (/navcam/left/navcam_left/depth/image_raw)
+       queda intacto. Estos gt_depth los usa únicamente
+       synthetic_dataset_generator_v2.py para resolver oclusión
+       (bbox visible, visib_fract y visibilidad de keypoints).
+  -->
+  <gazebo reference="navcam_left_link">
+    <sensor type="depth" name="navcam_left_gt_depth_sensor">
+      <always_on>true</always_on>
+      <update_rate>5.0</update_rate>
+      <visualize>false</visualize>
+      <camera name="navcam_left_gt_depth_camera">
+        <horizontal_fov>1.1344640137963142</horizontal_fov>
+        <image>
+          <width>1024</width>
+          <height>1024</height>
+        </image>
+        <clip>
+          <near>0.1</near>
+          <far>100.0</far>
+        </clip>
+      </camera>
+      <plugin name="navcam_left_gt_depth_controller" filename="libgazebo_ros_camera.so">
+        <ros>
+          <namespace>/navcam/left</namespace>
+        </ros>
+        <camera_name>navcam_left/gt_depth</camera_name>
+        <frame_name>navcam_left_optical_frame</frame_name>
+        <hack_baseline>0.0</hack_baseline>
+        <min_depth>0.1</min_depth>
+        <max_depth>100.0</max_depth>
+      </plugin>
+    </sensor>
+  </gazebo>
+
+  <gazebo reference="navcam_right_link">
+    <sensor type="depth" name="navcam_right_gt_depth_sensor">
+      <always_on>true</always_on>
+      <update_rate>5.0</update_rate>
+      <visualize>false</visualize>
+      <camera name="navcam_right_gt_depth_camera">
+        <horizontal_fov>1.1344640137963142</horizontal_fov>
+        <image>
+          <width>1024</width>
+          <height>1024</height>
+        </image>
+        <clip>
+          <near>0.1</near>
+          <far>100.0</far>
+        </clip>
+      </camera>
+      <plugin name="navcam_right_gt_depth_controller" filename="libgazebo_ros_camera.so">
+        <ros>
+          <namespace>/navcam/right</namespace>
+        </ros>
+        <camera_name>navcam_right/gt_depth</camera_name>
+        <frame_name>navcam_right_optical_frame</frame_name>
+        <hack_baseline>0.0</hack_baseline>
+        <min_depth>0.1</min_depth>
+        <max_depth>100.0</max_depth>
       </plugin>
     </sensor>
   </gazebo>

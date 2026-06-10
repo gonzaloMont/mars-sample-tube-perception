@@ -54,6 +54,12 @@
        parser de PointCloud2, por lo que no es estrictamente necesario. -->
   <!-- pip: open3d  (registro ICP y procesado de nubes de puntos) -->
 
+  <!-- Generador de dataset sintético v2 (synthetic_dataset_generator_v2.py):
+       reutiliza open3d (raycasting de visibilidad y rocas procedurales; sin
+       trimesh a propósito). matplotlib solo lo usa dataset_stats.py y es
+       opcional (cae a histogramas de texto si falta). -->
+  <exec_depend>python3-matplotlib</exec_depend>
+
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>ament_lint_common</test_depend>
 
