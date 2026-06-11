@@ -35,6 +35,42 @@ los stamps de imagen viven en tiempo de simulación). Mundo por defecto:
 `mars_optimized` (terreno real recortado centrado en el origen). `mars.world`
 original tiene el terreno desplazado ~(20,20,−2.4) y **no hay suelo bajo la
 cámara**; si lo quieres usar, reubica robot/cámara con los argumentos.
+Al terminar el generador, el launch se apaga solo (`shutdown_when_done:=false`
+para dejar la simulación viva e inspeccionarla).
+
+## Dataset repartido entre VARIOS mundos
+
+Variar el fondo (relieve y textura del terreno) es de las pocas variaciones
+de dominio útiles que quedan en monocromo. Como Gazebo Classic no puede
+cambiar de mundo en caliente, `generate_dataset_multiworld.py` encadena una
+ejecución del launch por mundo, todas **sobre el mismo `output_dir`** en modo
+append (`start_index`): ids globales contiguos, JSON BOP acumulados y campo
+`world` por muestra en `meta.jsonl`.
+
+```bash
+ros2 run parol6_vision generate_dataset_multiworld.py \
+    --worlds mars_optimized=0.6,mars_bumpy=0.4 \
+    --num_samples 1000 --output_dir $HOME/parol6_synth_dataset --seed 0
+
+# interrumpido a medias → continúa lo que falte (misma spec de --worlds):
+ros2 run parol6_vision generate_dataset_multiworld.py \
+    --worlds mars_optimized=0.6,mars_bumpy=0.4 \
+    --num_samples 1000 --output_dir $HOME/parol6_synth_dataset --resume
+```
+
+Detalles: las fracciones se normalizan (reparto por mayor resto, total
+exacto); cada mundo usa `seed + 1000·k`; **cada tanda hace su propio split
+70/20/10**, así que la proporción de mundos se conserva dentro de
+train/val/test; `dataset_stats.py` imprime el recuento por mundo. Si una
+tanda se queda sin progreso (`--stall_timeout`, 300 s) se aborta limpiamente
+y puedes relanzar con `--resume`. También puedes usarlo manualmente: lanzar
+`dataset_generation.launch.py` con `start_index:=N` añade muestras a un
+dataset existente sin pisar nada.
+
+⚠ **No puede haber otra simulación Gazebo abierta**: el orquestador lo
+comprueba y aborta (con un gzserver ajeno vivo, el nuevo muere por conflicto
+de puerto y el generador podría engancharse en silencio al mundo equivocado).
+Cierra tu simulación o pasa `--kill_existing_gazebo`.
 
 Todos los parámetros (fracciones de colocación, oclusión, nº de rocas,
 umbrales, topics…) son parámetros ROS del nodo; ver el bloque

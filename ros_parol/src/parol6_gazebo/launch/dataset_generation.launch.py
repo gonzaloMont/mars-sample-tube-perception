@@ -34,6 +34,7 @@ from launch.actions import (
     IncludeLaunchDescription,
     OpaqueFunction,
     RegisterEventHandler,
+    Shutdown,
 )
 from launch.event_handlers import OnProcessExit
 from launch.launch_description_sources import PythonLaunchDescriptionSource
@@ -60,6 +61,8 @@ def launch_setup(context, *args, **kwargs):
     num_samples = LaunchConfiguration('num_samples').perform(context)
     output_dir = LaunchConfiguration('output_dir').perform(context)
     seed = LaunchConfiguration('seed').perform(context)
+    start_index = LaunchConfiguration('start_index').perform(context)
+    shutdown_when_done = LaunchConfiguration('shutdown_when_done').perform(context)
     robot_x = LaunchConfiguration('robot_x').perform(context)
     robot_y = LaunchConfiguration('robot_y').perform(context)
     robot_z = LaunchConfiguration('robot_z').perform(context)
@@ -81,6 +84,9 @@ def launch_setup(context, *args, **kwargs):
     world_file = known_worlds.get(world_arg, world_arg)
     if not os.path.isfile(world_file):
         raise RuntimeError(f'Mundo no encontrado: {world_arg!r} → {world_file}')
+    # Nombre corto del mundo para trazabilidad en meta.jsonl
+    world_name = (world_arg if world_arg in known_worlds
+                  else os.path.splitext(os.path.basename(world_file))[0])
 
     use_sim_time = {'use_sim_time': True}
 
@@ -96,6 +102,9 @@ def launch_setup(context, *args, **kwargs):
         output='screen',
     )
 
+    # Nota: el argumento top-level `seed` se hereda también dentro de
+    # gazebo.launch.py (gzserver --seed=N): determiniza además el RNG del
+    # propio Gazebo. Es deliberado y armless.
     gazebo = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             os.path.join(pkg_gazebo_ros, 'launch', 'gazebo.launch.py')
@@ -199,10 +208,22 @@ def launch_setup(context, *args, **kwargs):
             'num_samples': int(num_samples),
             'output_dir': output_dir,
             'seed': int(seed),
+            'start_index': int(start_index),
+            'world_name': world_name,
         }],
     )
 
+    # Al terminar el generador (bien o mal), apagar todo el launch. Esencial
+    # para encadenar mundos con generate_dataset_multiworld.py.
+    extra_handlers = []
+    if shutdown_when_done.strip().lower() in ('true', '1', 'yes'):
+        extra_handlers.append(RegisterEventHandler(OnProcessExit(
+            target_action=generator,
+            on_exit=[Shutdown(reason='generación de dataset terminada')],
+        )))
+
     return [
+        *extra_handlers,
         gazebo,
         robot_state_publisher,
         spawn_entity,
@@ -251,6 +272,13 @@ def generate_launch_description():
                               description='Directorio de salida del dataset'),
         DeclareLaunchArgument('seed', default_value='0',
                               description='Semilla de reproducibilidad'),
+        DeclareLaunchArgument(
+            'start_index', default_value='0',
+            description='Primer id global de esta tanda (modo append '
+                        'multi-mundo; ver generate_dataset_multiworld.py)'),
+        DeclareLaunchArgument(
+            'shutdown_when_done', default_value='true',
+            description='Apagar el launch (y Gazebo) al terminar el generador'),
         DeclareLaunchArgument('robot_x', default_value='0.0'),
         DeclareLaunchArgument('robot_y', default_value='0.0'),
         DeclareLaunchArgument('robot_z', default_value='0.0'),

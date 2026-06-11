@@ -65,6 +65,7 @@ import json
 import math
 import os
 import random
+import sys
 import tempfile
 import threading
 import time
@@ -288,6 +289,11 @@ class SyntheticDatasetGeneratorV2(Node):
         d('output_dir', '~/parol6_synth_dataset')
         d('split_ratios', [0.70, 0.20, 0.10])
         d('seed', 0)
+        # Modo append (datasets multi-mundo): primer id global de esta tanda.
+        # Con start_index>0 se CARGAN los JSON BOP/split existentes y se añade
+        # encima. Lo orquesta scripts/generate_dataset_multiworld.py.
+        d('start_index', 0)
+        d('world_name', '')   # se guarda en meta.jsonl (trazabilidad por mundo)
         # Topics y frames (sección 2 del diseño)
         d('left_image_topic', '/navcam/left/navcam_left/image_raw')
         d('right_image_topic', '/navcam/right/navcam_right/image_raw')
@@ -369,6 +375,7 @@ class SyntheticDatasetGeneratorV2(Node):
     def _read_params(self):
         names = [
             'num_samples', 'output_dir', 'split_ratios', 'seed',
+            'start_index', 'world_name',
             'left_image_topic', 'right_image_topic', 'left_info_topic',
             'right_info_topic', 'left_gt_depth_topic', 'right_gt_depth_topic',
             'left_gt_info_topic', 'right_gt_info_topic',
@@ -1204,6 +1211,30 @@ class SyntheticDatasetGeneratorV2(Node):
                 f.write(_DATASET_README)
         self.meta_path = os.path.join(self.out_dir, 'meta.jsonl')
 
+        # Modo append: recargar el estado BOP/split de tandas anteriores para
+        # no pisarlo al hacer flush (dataset multi-mundo en varias pasadas).
+        start = int(self.p['start_index'])
+        if start > 0:
+            b = os.path.join(self.out_dir, 'bop')
+            for name in ('scene_camera', 'scene_gt', 'scene_gt_info'):
+                path = os.path.join(b, f'{name}.json')
+                if os.path.exists(path):
+                    with open(path) as f:
+                        self.bop[name].update(json.load(f))
+            sm_path = os.path.join(self.out_dir, 'split_map.json')
+            if os.path.exists(sm_path):
+                with open(sm_path) as f:
+                    self.split_of.update(
+                        {int(k): v for k, v in json.load(f).items()})
+            prev_ids = [int(k) for k in self.bop['scene_camera']]
+            if prev_ids and max(prev_ids) >= start:
+                self.get_logger().warning(
+                    f'start_index={start} se solapa con ids existentes '
+                    f'(máx {max(prev_ids)}): se SOBREESCRIBIRÁN esas entradas.')
+            self.get_logger().info(
+                f'Modo append: start_index={start}, '
+                f'{len(prev_ids)} muestras previas cargadas.')
+
     def _write_data_yaml(self):
         data = {
             'path': os.path.abspath(self.out_dir),
@@ -1300,13 +1331,15 @@ class SyntheticDatasetGeneratorV2(Node):
         self._build_terrain_cache()
 
         n = int(self.p['num_samples'])
+        start = int(self.p['start_index'])
         plans = self._build_plans(n)
         split_map = self._build_split_map(n)
-        min_vis = self.p['min_visibility']
 
         generated = 0
         t_start = time.monotonic()
-        log.info(f'Generando {n} muestras válidas en {self.out_dir} …')
+        world_tag = f" [mundo: {self.p['world_name']}]" if self.p['world_name'] else ''
+        log.info(f'Generando {n} muestras válidas en {self.out_dir} '
+                 f'(ids {start}…{start + n - 1}){world_tag} …')
 
         while generated < n and rclpy.ok():
             plan = plans[generated]
@@ -1318,7 +1351,8 @@ class SyntheticDatasetGeneratorV2(Node):
                         eff.get('occl') not in (None, 'none'):
                     eff['occl'] = 'none'
                 try:
-                    result = self._generate_one(generated, eff, split_map)
+                    result = self._generate_one(start + generated, eff,
+                                                split_map[generated])
                 except Exception as e:
                     log.error(f'[{generated + 1}/{n}] excepción: {e}\n'
                               f'{traceback.format_exc(limit=4)}')
@@ -1353,8 +1387,9 @@ class SyntheticDatasetGeneratorV2(Node):
             counts[s] = counts.get(s, 0) + 1
         log.info(f'Reparto por split: {counts}')
 
-    def _generate_one(self, gid, plan, split_map):
-        """Genera UNA muestra válida. Devuelve dict con resumen o None."""
+    def _generate_one(self, gid, plan, split):
+        """Genera UNA muestra válida (id global `gid`, split preasignado).
+        Devuelve dict con resumen o None."""
         rng = self.rng
         side = plan['cam']
         cache = self.terrain[side]
@@ -1480,7 +1515,6 @@ class SyntheticDatasetGeneratorV2(Node):
 
         # 5) Política de visibilidad sobre el tubo PRINCIPAL
         hard = False
-        split = split_map[gid]
         if plan['kind'] == 'pos':
             if not vis_list or vis_list[0] <= 0.0:
                 self._note_discard('visib_zero')
@@ -1500,6 +1534,7 @@ class SyntheticDatasetGeneratorV2(Node):
         }
         dist0 = tubes[0][2]['dist'] if tubes else None
         meta = {
+            'world': self.p['world_name'],
             'cam': side, 'hard': hard, 'kind': plan['kind'],
             'n_tubes': len(gt_entries), 'visib': vis_list, 'modes': modes_meta,
             'bury_depths': bury_meta, 'dist': dist0,
@@ -1546,12 +1581,15 @@ def main(args=None):
     executor.add_node(node)
     spin_thread = threading.Thread(target=executor.spin, daemon=True)
     spin_thread.start()
+    exit_code = 0
     try:
         node.run()
     except KeyboardInterrupt:
         node.get_logger().info('Interrumpido por el usuario.')
+        exit_code = 130
     except Exception as e:
         node.get_logger().error(f'Error fatal: {e}\n{traceback.format_exc()}')
+        exit_code = 1
     finally:
         try:
             node._flush_bop()
@@ -1560,6 +1598,7 @@ def main(args=None):
         executor.shutdown()
         node.destroy_node()
         rclpy.shutdown()
+    sys.exit(exit_code)
 
 
 if __name__ == '__main__':

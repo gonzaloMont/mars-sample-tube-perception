@@ -78,6 +78,7 @@ def main():
 
     n_pos = sum(1 for m in metas.values() if m['kind'] == 'pos')
     n_neg = sum(1 for m in metas.values() if m['kind'] == 'neg')
+    worlds = Counter(m.get('world', '?') for m in metas.values())
     splits = Counter(m['split'] for m in metas.values())
     cams_c = Counter(m['cam'] for m in metas.values())
     modes = Counter(md for m in metas.values() for md in m.get('modes', []))
@@ -89,6 +90,7 @@ def main():
     print(f'Dataset: {root}')
     print(f'Imágenes: {len(metas)}  (positivas={n_pos}, negativas={n_neg}, '
           f'hard={hards}, multi-tubo={multi})')
+    print(f'Mundos:   {dict(worlds)}')
     print(f'Splits:   {dict(splits)}')
     print(f'Cámara:   {dict(cams_c)}')
     print(f'Modos:    {dict(modes)}')
