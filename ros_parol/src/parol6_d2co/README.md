@@ -59,18 +59,20 @@ bordes**, que tiene el mismo efecto práctico sobre el coste y la robustez.
 
 ### 1. Librería externa libd2co (una sola vez)
 
-La librería vive en `parol6_ws/src/alberto_pretto-d2co-75e4ad9dfe90` (con
-`COLCON_IGNORE`; no es un paquete ROS). Ya incluye en `externals/`:
+La librería está **vendorizada dentro del paquete**, en `external/d2co/`
+(no es un paquete ROS; colcon no entra en ella). Incluye:
 
-- `cv_ext` — dependencia de Bitbucket hoy desaparecida (¡no borrar!).
-- `ceres_1_14/install` — Ceres 1.14 local (el 2.0 del sistema es incompatible).
-
-y los parches de compatibilidad para Ubuntu 22.04 / OpenCV 4 / C++14
-(`AutoDiff→NumericDiff` en `chamfer_matching.cpp`, `CV_DIST_L2→cv::DIST_L2`,
-etc.).
+- las fuentes de D2CO con los parches de compatibilidad para
+  Ubuntu 22.04 / OpenCV 4 / C++14 (`AutoDiff→NumericDiff` en
+  `chamfer_matching.cpp`, `CV_DIST_L2→cv::DIST_L2`, etc.) — estos parches
+  **no** están en el repo original de alberto_pretto;
+- `externals/cv_ext` — dependencia de Bitbucket hoy desaparecida: esta es la
+  única copia de las fuentes (¡no borrar!);
+- `externals/ceres_1_14/install` — Ceres 1.14 precompilado (el 2.0 del
+  sistema es incompatible; su config de CMake es relocatable).
 
 ```bash
-cd ~/parol6_ws/src/alberto_pretto-d2co-75e4ad9dfe90
+cd ~/parol6_ws/src/PAROL6/ros_parol/src/parol6_d2co/external/d2co
 
 # cv_ext (estática)
 cd externals/cv_ext && mkdir -p build && cd build
@@ -85,6 +87,18 @@ cmake -DCMAKE_BUILD_TYPE=Release \
       -DCeres_DIR=$PWD/../externals/ceres_1_14/install/lib/cmake/Ceres ..
 make -j4 d2co
 ```
+
+Dependencias de sistema que no van dentro del repo (en una máquina nueva):
+
+```bash
+sudo apt install libglfw3-dev libglew-dev libdime-dev libpcl-dev libeigen3-dev
+# OpenMesh 8.1 no está empaquetado en Ubuntu 22.04: compilar desde
+# https://www.openmesh.org (instala libOpenMeshCore en /usr/local).
+```
+
+> El RPATH del nodo se hornea al compilar apuntando a `external/d2co/lib` y
+> al Ceres local: si se mueve el repo de sitio, basta recompilar en orden
+> (cv_ext → libd2co → colcon) para regenerarlo.
 
 > **Importante:** se fija `OpenCV_DIR` al OpenCV 4.5.4 del sistema (el mismo
 > que usa `cv_bridge`). En esta máquina hay un OpenCV 4.14 en `/usr/local`

@@ -36,13 +36,12 @@ find_package(OpenMP REQUIRED)
 find_package(PCL REQUIRED COMPONENTS common)
 
 # ── Librería externa D2CO (CMake puro, compilada fuera de colcon) ───────────
-# Por defecto se asume el checkout hermano dentro del workspace:
-#   parol6_ws/src/alberto_pretto-d2co-75e4ad9dfe90
+# Vendorizada dentro del propio paquete (external/d2co): el repo PAROL6 es
+# autosuficiente. Hay que compilarla UNA vez antes del primer colcon build
+# (ver README.md, sección "Compilación").
 # Se puede sobreescribir con:  colcon build --cmake-args -DD2CO_ROOT=/otra/ruta
 if(NOT DEFINED D2CO_ROOT)
-  get_filename_component(D2CO_ROOT
-    "${CMAKE_CURRENT_SOURCE_DIR}/../../../../alberto_pretto-d2co-75e4ad9dfe90"
-    ABSOLUTE)
+  set(D2CO_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/external/d2co")
 endif()
 
 set(D2CO_INCLUDE_DIR "${D2CO_ROOT}/include")
