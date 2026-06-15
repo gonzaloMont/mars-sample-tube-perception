@@ -200,3 +200,58 @@ YOLO congela el equipo si corre continuo. Estrategia validada:
 
 Límite conocido: la inclinación fuera de plano del eje queda en ~17–22° (poco
 observable en monocular con tapas débiles); la posición es el dato robusto.
+
+## Test multi-pose con imágenes de debug (`scripts/test_d2co_pose.py`)
+
+Equivalente a `parol6_vision/test_icp_pose.py` pero para D2CO. Spawnea el tubo
+en una serie de poses conocidas, mide la estimación de `/vision/tube_pose`
+contra la verdad-terreno (`/model_states`) y **guarda dos imágenes de debug
+por pose** para evaluación visual.
+
+**No necesita YOLO** (que congela el equipo): como el test conoce la pose
+verdad-terreno del tubo que spawnea, **calcula la bbox proyectando el modelo 3D
+del tubo en la imagen** y la publica él mismo en `/vision/detections`. Esto
+aísla el algoritmo D2CO del ruido de YOLO y no consume recursos. La pose de la
+cámara se lee de **TF** (`world`→`navcam_left_optical_frame`), así que el test
+funciona con cualquier configuración de mástil/mundo sin tocar constantes.
+
+```bash
+# 1) Gazebo (mundo optimized, va más fluido) con la NavCam:
+ros2 launch parol6_gazebo gazebo_moveit_mars_optimized.launch.py camera:=navcam
+# 2) Nodo D2CO SIN YOLO (el test provee las bbox), salida en world:
+ros2 launch parol6_d2co d2co_pose.launch.py enable_yolo:=false output_frame:=world
+# 3) (recomendado) matar gzclient: las cámaras renderizan en gzserver y el
+#    GUI ralentiza mucho los ciclos del optimizador.
+kill $(pgrep -x gzclient)
+# 4) Test con imágenes de debug:
+ros2 run parol6_d2co test_d2co_pose.py --debug-dir /tmp/d2co_test
+```
+
+Por cada pose `{name}` se guardan:
+- `{name}_overlay.png` — el overlay PROPIO del nodo (`/vision/d2co_overlay`):
+  raster real del STL en la pose estimada (amarillo) + bbox (rojo). Solo
+  aparece en las poses cuya estimación fue aceptada (`avg_dist < max_avg_dist`).
+- `{name}_annot.png` — imagen anotada por el test: eje GT (verde), estimación
+  D2CO media + cilindro proyectado (azul/amarillo), bbox usada (rojo), línea de
+  error GT→D2CO y panel con métricas. Permite comparar GT vs estimación de un
+  vistazo.
+
+Opciones útiles: `--samples N` (muestras por pose), `--grace S` (debe cubrir
+≥1 ciclo del nodo, def. 10 s), `--bbox-margin-px`/`--bbox-jitter-px` (emular
+bbox holgada/descentrada de YOLO), `--poses-file` (YAML `{poses: [...]}`),
+`--csv`. Umbrales de PASS por defecto realistas para monocular: 80 mm / 30°.
+
+> **Nota sobre los resultados (barrido de 12 poses, jun-2026).** Este test
+> sistemático muestra que la precisión de D2CO es **muy dependiente de la
+> posición**: los 53/79 mm de la sección anterior eran dos puntos escogidos a
+> mano (mejor caso). En el barrido completo: **0/12 PASS**, error medio de
+> posición **604 mm**, 5/12 poses sin estimación aceptada (`avg_dist > 4.5`).
+> El patrón es consistente: la anchura de los raíles se mide ~3.4 px en vez de
+> ~6 px (a resolución de trabajo) y la corrección por anchura empuja la
+> profundidad estimada a ~1.7–2.1 m frente a los ~1.4 m reales. Las imágenes
+> `_annot.png` lo muestran nítido: la bbox y el eje GT caen sobre el tubo, pero
+> el cilindro estimado queda más pequeño (más lejos). Una bbox más holgada
+> (`--bbox-margin-px 60`) mejora algún caso (p.ej. 1200 → 233 mm) pero no lo
+> resuelve. Es el límite monocular ya documentado, ahora reproducible de forma
+> sistemática — **no es un fallo del test sino del algoritmo en esta escena**.
+> Resultados completos + 23 imágenes en `~/parol6_ws/.d2co_validation/test_poses/`.
