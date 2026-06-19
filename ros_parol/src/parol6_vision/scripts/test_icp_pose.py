@@ -51,9 +51,11 @@ from typing import List, Optional, Tuple
 import numpy as np
 
 import rclpy
+import rclpy.time
 from rclpy.node import Node
 from rclpy.task import Future
 from rclpy.qos import QoSDurabilityPolicy, QoSProfile, QoSReliabilityPolicy
+import tf2_ros
 
 from ament_index_python.packages import get_package_share_directory
 
@@ -85,15 +87,22 @@ except ImportError:
 #    • pitch=0    → tubo vertical:   el eje largo apunta a world +Z.
 #    • yaw rota el eje horizontal del cilindro alrededor de world Z.
 #
-#  ZONA ÚTIL DE LA NUBE (depende de num_disparities del stereo)
-#  El SGBM no calcula disparidad en los primeros `num_disparities` píxeles
-#  de la imagen rectificada (escalada). En la imagen original 1024x1024 eso
-#  son `2 * num_disparities` píxeles en u (lado izquierdo de la imagen óptica).
-#    • num_disparities=224 (default antiguo) → u_min ≈ 448  (44% imagen muerto)
-#    • num_disparities=96  (actual)          → u_min ≈ 192  (19% imagen muerto)
-#  Las poses se proyectan a u (px) según:
-#      u = fx · (0.075 - Y) / (0.75 - Z) + cx     [con fx=803, cx=512]
-#  Asegúrate de que u >= u_min para que el tubo caiga en la nube válida.
+#  HUELLA DE LA NAVCAM EN MÁSTIL (default `navcam_pose:=mast`)
+#  El rig está en base_link (-0.3,-0.3,1.11) con RPY(0, 0.91, 0.3): mira al
+#  suelo inclinado 52° y girado 17°. Su eje óptico corta el plano del suelo
+#  en ≈ (0.50, 0.00) a ~1.39 m, y la zona visible útil sobre el suelo es
+#  aprox.  x ∈ [-0.25, 0.80],  y ∈ [-0.75, 0.60]  (con ~1.2–1.5 m de
+#  profundidad, dentro del rango estéreo [0.30, 2.0] m).
+#
+#  ZONA MUERTA DEL ESTÉREO
+#  El SGBM no calcula disparidad en las primeras `num_disparities` columnas de
+#  la imagen rectificada (escalada por scale_factor). Con num_disparities=96 y
+#  scale_factor=0.5 eso son ~192 columnas en la imagen original 1024² (u_min).
+#  Las poses de abajo se eligieron para que el tubo (centro Y AMBAS PUNTAS)
+#  proyecte con u ≥ u_min+margen y caiga en el FOV del mástil. Se verificaron
+#  con la cadena real de TF (ver /tmp scratch o re-derivar de navcam_stereo.urdf
+#  + el static_transform del launch). Si cambias `navcam_pose`/`mast_*` o la
+#  pose del robot, re-verifica proyectando con las extrínsecas de TF.
 #
 #  GRUPOS DE POSES — diseñados para AISLAR la causa de fallo:
 #    A) Posición XY (yaw=0, pitch=π/2 fijo): ¿depende del lugar?
@@ -102,42 +111,43 @@ except ImportError:
 #    D) Pitch (XY fijo, yaw=0): ¿depende de la inclinación (horiz vs vert)?
 #    E) Edge cases conocidos del set original (regresión).
 # ════════════════════════════════════════════════════════════════════════════
+#  Centradas en la huella del MÁSTIL (eje óptico → suelo ≈ (0.50, 0.00)).
+#  Verificadas: centro + ambas puntas del tubo dentro de FOV + zona útil.
 DEFAULT_TEST_POSES: list[tuple[str, float, float, float, float, float, float]] = [
     # ── Grupo A: barrido de posición XY (tubo horizontal yaw=0) ──────────────
     # (name,                  x,     y,     z,    R, P,           Y)
-    ("A1_center_xy",          0.50,  0.00, 0.01, 0, math.pi / 2, 0.0),
-    ("A2_right_y_neg",        0.30, -0.3, 0.01, 0, math.pi / 2, 0.0),
-    ("A3_left_y_pos",         0.30,  0.3, 0.01, 0, math.pi / 2, 0.0),
-    ("A4_far_x",              0.40,  0.00, 0.01, 0, math.pi / 2, 0.0),
-    ("A5_near_x",             0.22, 0.2, 0.01, 0, math.pi / 2, 0.0),
+    ("A1_center",             0.50,  0.00, 0.01, 0, math.pi / 2, 0.0),
+    ("A2_y_neg",              0.50, -0.20, 0.01, 0, math.pi / 2, 0.0),
+    ("A3_y_pos",              0.45,  0.20, 0.01, 0, math.pi / 2, 0.0),
+    ("A4_far_x",              0.65,  0.00, 0.01, 0, math.pi / 2, 0.0),
+    ("A5_near_x",             0.35,  0.00, 0.01, 0, math.pi / 2, 0.0),
 
-    # ── Grupo B: barrido de yaw (XY fijo en zona útil, pitch=π/2) ────────────
-    ("B1_yaw_0",              0.30, 0.20, 0.01, 0, math.pi / 2,  0.0),
-    ("B2_yaw_30",             0.30, 0.20, 0.01, 0, math.pi / 2,  math.pi / 6),
-    ("B3_yaw_45",             0.30, 0.20, 0.01, 0, math.pi / 2,  math.pi / 4),
-    ("B4_yaw_60",             0.30, 0.20, 0.01, 0, math.pi / 2,  math.pi / 3),
-    ("B5_yaw_90",             0.30, 0.20, 0.01, 0, math.pi / 2,  math.pi / 2),
-    ("B6_yaw_135",            0.30, 0.20, 0.01, 0, math.pi / 2,  3 * math.pi / 4),
-    ("B7_yaw_neg_45",         0.30, 0.20, 0.01, 0, math.pi / 2, -math.pi / 4),
-    ("B8_yaw_neg_90",         0.30, 0.20, 0.01, 0, math.pi / 2, -math.pi / 2),
+    # ── Grupo B: barrido de yaw (XY fijo en el centro, pitch=π/2) ────────────
+    ("B1_yaw_0",              0.50,  0.00, 0.01, 0, math.pi / 2,  0.0),
+    ("B2_yaw_30",             0.50,  0.00, 0.01, 0, math.pi / 2,  math.pi / 6),
+    ("B3_yaw_45",             0.50,  0.00, 0.01, 0, math.pi / 2,  math.pi / 4),
+    ("B4_yaw_60",             0.50,  0.00, 0.01, 0, math.pi / 2,  math.pi / 3),
+    ("B5_yaw_90",             0.50,  0.00, 0.01, 0, math.pi / 2,  math.pi / 2),
+    ("B6_yaw_135",            0.50,  0.00, 0.01, 0, math.pi / 2,  3 * math.pi / 4),
+    ("B7_yaw_neg_45",         0.50,  0.00, 0.01, 0, math.pi / 2, -math.pi / 4),
+    ("B8_yaw_neg_90",         0.50,  0.00, 0.01, 0, math.pi / 2, -math.pi / 2),
 
     # ── Grupo C: barrido de altura Z (XY fijo, horizontal yaw=0) ─────────────
-    ("C1_z_0.01",             0.30, 0.20, 0.01, 0, math.pi / 2, 0.0),
-    ("C2_z_0.05",             0.30, 0.20, 0.05, 0, math.pi / 2, 0.0),
-    ("C3_z_0.10",             0.30, 0.20, 0.10, 0, math.pi / 2, 0.0),
+    ("C1_z_0.01",             0.50,  0.00, 0.01, 0, math.pi / 2, 0.0),
+    ("C2_z_0.05",             0.50,  0.00, 0.05, 0, math.pi / 2, 0.0),
+    ("C3_z_0.10",             0.50,  0.00, 0.10, 0, math.pi / 2, 0.0),
 
     # ── Grupo D: barrido de pitch (XY fijo, yaw=0) ───────────────────────────
     # pitch=0 => tubo vertical (eje en world +Z); π/4 => 45°; π/2 => horizontal
-    ("D1_vertical_pitch_0",   0.30, 0.20, 0.10, 0, 0.0,         0.0),
-    ("D2_pitch_45",           0.30, 0.20, 0.05, 0, math.pi / 4, 0.0),
-    ("D3_pitch_90",           0.30, 0.20, 0.01, 0, math.pi / 2, 0.0),
+    ("D1_vertical_pitch_0",   0.50,  0.00, 0.10, 0, 0.0,         0.0),
+    ("D2_pitch_45",           0.50,  0.00, 0.05, 0, math.pi / 4, 0.0),
+    ("D3_pitch_90",           0.50,  0.00, 0.01, 0, math.pi / 2, 0.0),
 
-    # ── Grupo E: poses del set original (regresión, para no perder señal) ────
-    ("E1_horiz_right_X",      0.30, -0.20, 0.01, 0, math.pi / 2,  0.0),
-    ("E2_horiz_right_X2",     0.35, -0.15, 0.01, 0, math.pi / 2,  0.0),
-    ("E3_horiz_yaw_45",       0.25, -0.25, 0.01, 0, math.pi / 2,  math.pi / 4),
-    ("E4_horiz_yaw_90",       0.32, -0.18, 0.01, 0, math.pi / 2,  math.pi / 2),
-    ("E5_horiz_yaw_neg_45",   0.28, -0.22, 0.01, 0, math.pi / 2, -math.pi / 4),
+    # ── Grupo E: edge cases (bordes de la huella, lejos, laterales) ──────────
+    ("E1_left_edge",          0.40,  0.30, 0.01, 0, math.pi / 2,  0.0),
+    ("E2_right",              0.55, -0.30, 0.01, 0, math.pi / 2,  0.0),
+    ("E3_far_yaw_45",         0.62, -0.10, 0.01, 0, math.pi / 2,  math.pi / 4),
+    ("E4_near_yaw_90",        0.38,  0.10, 0.01, 0, math.pi / 2,  math.pi / 2),
 ]
 
 
@@ -165,24 +175,20 @@ def rpy_to_quat(roll: float, pitch: float, yaw: float) -> tuple[float, float, fl
     return qx, qy, qz, qw
 
 
-# Frame `navcam_left_optical_frame` en world. Constantes derivadas del URDF
-# `navcam_stereo.urdf.xacro`: rig a (0.2,0,0.75) con rot 90° en Y, offset
-# (0,0.075,0) al left_link, y RPY(-π/2,0,-π/2) al optical_frame.
-R_WORLD_RIG = quat_to_R(0.0, 0.7071068, 0.0, 0.7071068)
-T_WORLD_RIG = np.array([0.2, 0.0, 0.75])
-T_RIG_LEFT = np.array([0.0, 0.075, 0.0])
-R_LINK_OPTICAL = np.array([[0, 0, 1], [-1, 0, 0], [0, -1, 0]], dtype=np.float64)
-T_WORLD_LEFT = R_WORLD_RIG @ T_RIG_LEFT + T_WORLD_RIG
-R_WORLD_OPTICAL = R_WORLD_RIG @ R_LINK_OPTICAL
-
-
-def transform_pose_to_world(t_optical: np.ndarray,
-                            R_optical: np.ndarray,
-                            ) -> tuple[np.ndarray, np.ndarray]:
-    """Convierte una pose expresada en `navcam_left_optical_frame` a `world`."""
-    t_world = R_WORLD_OPTICAL @ t_optical + T_WORLD_LEFT
-    R_world = R_WORLD_OPTICAL @ R_optical
-    return t_world, R_world
+# ─────────────────────────────────────────────────────────────────────────────
+#  Extrínsecas de la cámara (su pose en `world`).
+#
+#  ⚠️  NO se hardcodean. Se obtienen en runtime de TF2, igual que hace el nodo
+#      ICP para publicar en `world`. Así el test es AGNÓSTICO a la cámara y a su
+#      pose: funciona con la NavCam en mástil (`navcam_pose:=mast`, el default),
+#      cenital (`navcam_pose:=original`) o la cámara overhead, sin tocar código.
+#
+#      Antes estaban FIJADAS a la pose cenital (rig en (0.2,0,0.75), 90° en Y).
+#      Al pasar a la NavCam en mástil eso rompía las proyecciones de debug y la
+#      conversión óptico→world. Ahora se leen de TF (ver IcpPoseTester._world_from).
+# ─────────────────────────────────────────────────────────────────────────────
+DEFAULT_WORLD_FRAME = "world"
+DEFAULT_CAMERA_FRAME = "navcam_left_optical_frame"
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -236,10 +242,22 @@ class IcpPoseTester(Node):
     TUBE_ENTITY = "test_icp_tube"
     AXIS_OBJ = np.array([0.0, 0.0, 1.0])  # eje largo del cilindro en object frame
 
-    def __init__(self, mesh_path: str, debug_dir: Optional[str] = None) -> None:
+    def __init__(self, mesh_path: str, debug_dir: Optional[str] = None,
+                 world_frame: str = DEFAULT_WORLD_FRAME,
+                 camera_frame: str = DEFAULT_CAMERA_FRAME) -> None:
         super().__init__("icp_pose_tester")
         self.mesh_path = mesh_path
         self.debug_dir = debug_dir
+
+        # ── Frames (extrínsecas vía TF, NO hardcodeadas) ─────────────────────
+        # world_frame:  donde vive el ground-truth (/model_states de Gazebo) y
+        #               donde el nodo ICP publica la pose (output_frame: world).
+        # camera_frame: frame óptico de la cámara; se autocorrige con el
+        #               header.frame_id del camera_info cuando llega.
+        self.world_frame = world_frame
+        self.camera_frame = camera_frame
+        # Cache de extrínsecas world<-frame (la TF es estática).
+        self._tf_world_from: dict = {}
 
         # ── Estado ────────────────────────────────────────────────────────────
         self._gt_pos: Optional[np.ndarray] = None
@@ -301,6 +319,12 @@ class IcpPoseTester(Node):
         self._cli_spawn = self.create_client(SpawnEntity, "/spawn_entity")
         self._cli_delete = self.create_client(DeleteEntity, "/delete_entity")
 
+        # ── TF2: extrínsecas de la cámara leídas en runtime ──────────────────
+        # Misma fuente que usa el nodo ICP para transformar a `world`. Agnóstico
+        # a la pose de la cámara (mástil/cenital/overhead).
+        self._tf_buffer = tf2_ros.Buffer()
+        self._tf_listener = tf2_ros.TransformListener(self._tf_buffer, self)
+
     # ── Callbacks ────────────────────────────────────────────────────────────
 
     def _gt_cb(self, msg: ModelStates) -> None:
@@ -312,17 +336,58 @@ class IcpPoseTester(Node):
                 self._gt_R = quat_to_R(o.x, o.y, o.z, o.w)
                 return
 
+    def _world_from(self, frame: str, spin: bool = False,
+                    timeout_s: float = 5.0
+                    ) -> Optional[Tuple[np.ndarray, np.ndarray]]:
+        """(R, t) tal que  p_world = R @ p_frame + t, leído de TF2 y cacheado.
+
+        Es la pose del `frame` (p.ej. el óptico de la cámara) en `world`, de la
+        MISMA fuente que usa el nodo ICP. Por eso vale para cualquier cámara/pose
+        sin hardcodear nada. `spin=True` rellena el buffer TF desde el hilo
+        principal (NO usar con spin=True dentro de un callback de suscripción).
+        """
+        if frame in self._tf_world_from:
+            return self._tf_world_from[frame]
+        deadline = time.monotonic() + timeout_s
+        while True:
+            try:
+                tf = self._tf_buffer.lookup_transform(
+                    self.world_frame, frame, rclpy.time.Time())
+            except (tf2_ros.LookupException, tf2_ros.ConnectivityException,
+                    tf2_ros.ExtrapolationException):
+                if spin and rclpy.ok() and time.monotonic() < deadline:
+                    rclpy.spin_once(self, timeout_sec=0.1)
+                    continue
+                return None
+            tr = tf.transform.translation
+            q = tf.transform.rotation
+            R = quat_to_R(q.x, q.y, q.z, q.w)
+            t = np.array([tr.x, tr.y, tr.z])
+            self._tf_world_from[frame] = (R, t)
+            self.get_logger().info(
+                f"Extrínsecas TF {self.world_frame}<-{frame}: "
+                f"t=({t[0]:+.3f}, {t[1]:+.3f}, {t[2]:+.3f})")
+            return self._tf_world_from[frame]
+
     def _pose_cb(self, msg: PoseStamped) -> None:
         p = msg.pose.position
         o = msg.pose.orientation
-        if msg.header.frame_id == "navcam_left_optical_frame":
-            t_w, R_w = transform_pose_to_world(
-                np.array([p.x, p.y, p.z]),
-                quat_to_R(o.x, o.y, o.z, o.w),
-            )
-        else:
-            t_w = np.array([p.x, p.y, p.z])
-            R_w = quat_to_R(o.x, o.y, o.z, o.w)
+        t_w = np.array([p.x, p.y, p.z])
+        R_w = quat_to_R(o.x, o.y, o.z, o.w)
+        frame = msg.header.frame_id
+        # La pose suele llegar ya en `world` (output_frame: world); en ese caso
+        # se usa tal cual. Si llega en el frame óptico (output_frame vacío) la
+        # pasamos a world con la extrínseca de TF (sin spin: dentro de callback).
+        if frame and frame != self.world_frame:
+            ext = self._world_from(frame, spin=False)
+            if ext is not None:
+                R_wo, t_wo = ext
+                t_w = R_wo @ t_w + t_wo
+                R_w = R_wo @ R_w
+            else:
+                self.get_logger().warn(
+                    f"Pose en '{frame}' sin TF a '{self.world_frame}'; se usa "
+                    f"sin transformar (la métrica puede salir mal).")
         self._estimates.append((time.monotonic(), t_w, R_w))
 
     def _image_cb(self, msg: Image) -> None:
@@ -335,6 +400,9 @@ class IcpPoseTester(Node):
 
     def _ci_cb(self, msg: CameraInfo) -> None:
         self._K = np.array(msg.k, dtype=np.float64).reshape(3, 3)
+        # El frame óptico real lo dicta el propio camera_info (robusto a renombrados).
+        if msg.header.frame_id:
+            self.camera_frame = msg.header.frame_id
 
     def _det_cb(self, msg: Detection2DArray) -> None:
         if not msg.detections:
@@ -347,10 +415,13 @@ class IcpPoseTester(Node):
 
     # ── Debug: generación de imágenes anotadas ─────────────────────────────
 
-    @staticmethod
-    def _world_to_optical(p_world: np.ndarray) -> np.ndarray:
-        """Convierte un punto del frame `world` a `navcam_left_optical_frame`."""
-        return R_WORLD_OPTICAL.T @ (p_world - T_WORLD_LEFT)
+    def _world_to_optical(self, p_world: np.ndarray) -> Optional[np.ndarray]:
+        """Convierte un punto de `world` al frame óptico de la cámara (vía TF)."""
+        ext = self._world_from(self.camera_frame)
+        if ext is None:
+            return None
+        R_wo, t_wo = ext
+        return R_wo.T @ (p_world - t_wo)
 
     def _project_world_point(self, p_world: np.ndarray
                              ) -> Optional[Tuple[float, float, float]]:
@@ -358,7 +429,7 @@ class IcpPoseTester(Node):
         if self._K is None:
             return None
         p_opt = self._world_to_optical(p_world)
-        if p_opt[2] <= 1e-6:
+        if p_opt is None or p_opt[2] <= 1e-6:
             return None
         u = self._K[0, 0] * p_opt[0] / p_opt[2] + self._K[0, 2]
         v = self._K[1, 1] * p_opt[1] / p_opt[2] + self._K[1, 2]
@@ -381,6 +452,16 @@ class IcpPoseTester(Node):
             self.get_logger().warn(
                 f"[debug {name}] sin imagen o sin K; no se genera imagen.")
             return
+
+        # Extrínsecas de la cámara desde TF (spin=True: estamos en el hilo
+        # principal). Sin ellas no se puede proyectar nada al plano imagen.
+        ext = self._world_from(self.camera_frame, spin=True)
+        if ext is None:
+            self.get_logger().warn(
+                f"[debug {name}] sin TF {self.world_frame}<-{self.camera_frame}; "
+                f"no se genera imagen.")
+            return
+        R_wo, t_wo = ext
 
         img = self._last_image.copy()
         h, w = img.shape[:2]
@@ -448,8 +529,8 @@ class IcpPoseTester(Node):
                 # Transformar mesh: world = R_icp @ pts_obj + t_icp
                 mean_R = self._mean_rotation(estimates)
                 pts_world = (mean_R @ self._mesh_points_obj.T).T + mean_pos
-                # Proyectar cada punto
-                pts_opt = (R_WORLD_OPTICAL.T @ (pts_world - T_WORLD_LEFT).T).T
+                # Proyectar cada punto (extrínseca world->óptico desde TF)
+                pts_opt = (R_wo.T @ (pts_world - t_wo).T).T
                 in_front = pts_opt[:, 2] > 1e-6
                 pts_fwd = pts_opt[in_front]
                 if pts_fwd.shape[0] > 0:
@@ -915,6 +996,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--debug-dir", type=str, default=None,
                         help="Directorio donde guardar imágenes anotadas de debug "
                              "(bbox YOLO, GT, ICP, mesh proyectado, métricas)")
+    parser.add_argument("--world-frame", type=str, default=DEFAULT_WORLD_FRAME,
+                        help=f"Frame del ground-truth y de la pose publicada "
+                             f"(default '{DEFAULT_WORLD_FRAME}').")
+    parser.add_argument("--camera-frame", type=str, default=DEFAULT_CAMERA_FRAME,
+                        help=f"Frame óptico de la cámara para proyectar el debug; "
+                             f"se autocorrige con camera_info "
+                             f"(default '{DEFAULT_CAMERA_FRAME}').")
     args = parser.parse_args(argv)
 
     try:
@@ -929,7 +1017,9 @@ def main(argv: list[str] | None = None) -> int:
         poses = DEFAULT_TEST_POSES
 
     rclpy.init()
-    tester = IcpPoseTester(mesh_path, debug_dir=args.debug_dir)
+    tester = IcpPoseTester(mesh_path, debug_dir=args.debug_dir,
+                           world_frame=args.world_frame,
+                           camera_frame=args.camera_frame)
 
     try:
         if not args.no_auto_activate:
