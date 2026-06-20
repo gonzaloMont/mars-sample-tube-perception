@@ -17,6 +17,32 @@ válido para evaluar ICP/LINEMOD con las mismas imágenes.
 - `labels/*.txt` vacíos = imágenes de fondo (negativas): déjalas, reducen
   falsos positivos.
 
+### Por qué bbox VISIBLE y no amodal (decisión deliberada)
+
+Es la convención **modal**, la estándar en detección 2D: COCO, Pascal VOC,
+KITTI y Cityscapes anotan solo la instancia visible, y Waymo lo especifica
+literalmente para 2D ("the boxes only capture the visible parts of the
+object, and do not try to estimate the extent of a partially occluded
+object"). La caja **amodal** (extensión completa aunque esté tapada) es un
+enfoque especializado (p. ej. planificación de trayectorias en conducción
+autónoma), no para un detector 2D al uso. Motivos concretos aquí:
+
+1. Los pesos preentrenados (`yolo26n.pt`, COCO) son modales; entrenar con
+   cajas amodales mezclaría convenciones y degradaría.
+2. La caja YOLO alimenta el recorte de la nube para ICP/LINEMOD; una amodal
+   incluiría la región del oclusor (roca/terreno) → más fondo en el recorte.
+3. El generador YA guarda la caja amodal aparte en `bop/scene_gt_info.json`
+   (`bbox_obj`), por si se necesita la extensión completa sin regenerar.
+
+Matiz del comportamiento (es el correcto): con oclusión en el **medio** la
+caja visible sigue cubriendo el objeto entero (hay píxeles a ambos lados);
+solo se encoge cuando se tapa un **extremo**, igual que COCO. Para oclusión
+fuerte, `min_visibility` (0.10) descarta del entrenamiento las cajas con muy
+poco visible y las enruta a "hard"→test, como recomiendan las guías.
+
+Fuentes: COCO/VOC/KITTI/Cityscapes (modal/inmodal 2D); Waymo Open Dataset
+labeling specifications; Label Your Data / Ultralytics issue #1240.
+
 ## Comando de entrenamiento recomendado (Ultralytics)
 
 ```bash
