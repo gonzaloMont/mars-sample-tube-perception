@@ -35,6 +35,7 @@ install(PROGRAMS
     nodos/pose_estimator_node.py
     nodos/pose_estimator_node2.py
     nodos/synthetic_dataset_generator.py
+    nodos/synthetic_dataset_generator_v2.py       # generador de dataset Sim2Real v2
     nodos/linemod_pose_estimator_node.py
     nodos/stereo_pointcloud_node.py
     nodos/icp_pose_estimator_node.py
@@ -47,15 +48,19 @@ install(PROGRAMS
     scripts/eval_linemod_offline.py               # NUEVO: verificación offline
     scripts/test_icp_pose.py                      # NUEVO: test rendimiento ICP
     scripts/test_tube_grasp_pose.py               # NUEVO: test end-to-end del nodo de agarre
+    scripts/visualize_dataset_samples.py          # QA visual del dataset sintético v2
+    scripts/dataset_stats.py                      # histogramas de cobertura del dataset v2
+    scripts/generate_dataset_multiworld.py        # dataset v2 repartido entre varios mundos
     DESTINATION lib/${PROJECT_NAME}
 )
 
 
-# ── Recursos: configuración, modelos y launch ───────────────────────────────
+# ── Recursos: configuración, modelos, launch y documentación ────────────────
 install(DIRECTORY
     models
     config
     launch
+    docs
     DESTINATION share/${PROJECT_NAME}
 )
 
