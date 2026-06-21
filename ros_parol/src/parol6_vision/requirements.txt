@@ -1,0 +1,20 @@
+# Dependencias Python de parol6_vision que NO cubre rosdep/apt limpiamente.
+# Instalar con:  pip install -r requirements.txt
+#
+# ── OpenCV con módulos CONTRIB (OBLIGATORIO) ────────────────────────────────
+# El nodo stereo_pointcloud_node.py usa cv2.ximgproc (WLS + createRightMatcher)
+# y LINEMOD usa cv2.linemod: ambos viven SOLO en el paquete *contrib*.
+#
+# IMPORTANTE: NO debe coexistir `opencv-python` (sin contrib). Si ultralytics u
+# otro paquete lo arrastró a ~/.local, eclipsa al opencv de apt y a esta rueda,
+# y cv2.ximgproc desaparece. Para corregirlo:
+#     pip uninstall -y opencv-python opencv-python-headless
+#     pip install -r requirements.txt
+opencv-contrib-python==4.9.0.80
+
+# ── Resto del stack de visión (referencia; muchos ya vienen por apt/rosdep) ──
+# Se listan con el mínimo probado para reproducibilidad; descomentar si se
+# monta el entorno solo con pip.
+# numpy==1.26.4
+# open3d==0.19.0
+# ultralytics==8.4.11

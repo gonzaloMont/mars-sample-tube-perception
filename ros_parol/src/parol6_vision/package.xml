@@ -31,8 +31,17 @@
 
   <!-- Vision -->
   <exec_depend>cv_bridge</exec_depend>
-  <!-- LINEMOD vive en el módulo contrib de OpenCV: se necesita
-       opencv-contrib-python (cv2.linemod). Ver README_LINEMOD.md. -->
+  <!-- OpenCV con módulos CONTRIB (obligatorio):
+         * cv2.ximgproc  -> stereo_pointcloud_node.py (WLS + RightMatcher)
+         * cv2.linemod   -> LINEMOD (ver README_LINEMOD.md)
+       El paquete apt `python3-opencv` SÍ los trae (depende de
+       libopencv-contrib). AVISO: si hay un `opencv-python` instalado por pip
+       (p.ej. en ~/.local, arrastrado por ultralytics) ECLIPSA al de apt y NO
+       trae contrib -> `cv2.ximgproc` desaparece y el nodo estéreo aborta.
+       En ese caso, sustituirlo por la rueda contrib (misma versión):
+         pip uninstall -y opencv-python && \
+         pip install opencv-contrib-python==<misma_version>
+       Ver requirements.txt de este paquete. -->
   <exec_depend>python3-opencv</exec_depend>
 
   <!-- YOLO -->
