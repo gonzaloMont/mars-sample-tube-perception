@@ -88,14 +88,6 @@ cmake -DCMAKE_BUILD_TYPE=Release \
 make -j4 d2co
 ```
 
-Dependencias de sistema que no van dentro del repo (en una máquina nueva):
-
-```bash
-sudo apt install libglfw3-dev libglew-dev libdime-dev libpcl-dev libeigen3-dev
-# OpenMesh 8.1 no está empaquetado en Ubuntu 22.04: compilar desde
-# https://www.openmesh.org (instala libOpenMeshCore en /usr/local).
-```
-
 > El RPATH del nodo se hornea al compilar apuntando a `external/d2co/lib` y
 > al Ceres local: si se mueve el repo de sitio, basta recompilar en orden
 > (cv_ext → libd2co → colcon) para regenerarlo.
@@ -104,6 +96,89 @@ sudo apt install libglfw3-dev libglew-dev libdime-dev libpcl-dev libeigen3-dev
 > que usa `cv_bridge`). En esta máquina hay un OpenCV 4.14 en `/usr/local`
 > que `find_package` encontraría primero; mezclar dos OpenCV en el mismo
 > proceso corrompe el ABI.
+
+### 1b. Dependencias de sistema (OBLIGATORIAS — sin ellas el nodo no arranca)
+
+D2CO necesita estas librerías instaladas **en el sistema**. Sin ellas el
+paquete compila pero el nodo aborta al lanzarse, porque el enlazado dinámico
+no encuentra las bibliotecas en tiempo de ejecución.
+
+```bash
+sudo apt update
+sudo apt install -y \
+    libgoogle-glog-dev \
+    libunwind-dev \
+    libglfw3-dev \
+    libdime-dev \
+    libglm-dev \
+    libglew-dev \
+    libpcl-dev \
+    libeigen3-dev
+```
+
+| Librería | Para qué | Quién la pide |
+|---|---|---|
+| `libgoogle-glog-dev` | logging de Ceres | **Ceres 1.14 vendorizado** (dep. transitiva) |
+| `libunwind-dev` | trazas de glog | glog |
+| `libglfw3-dev` | contexto OpenGL oculto | `RasterObjectModel3D::computeRaster()` |
+| `libdime-dev` | lectura de DXF | libd2co |
+| `libglm-dev`, `libglew-dev` | matemáticas y extensiones GL | libd2co |
+| `libpcl-dev`, `libeigen3-dev` | estructuras geométricas | libd2co |
+
+**OpenMesh 8.1** no está empaquetado en Ubuntu 22.04 y hay que instalarlo
+aparte (es quien carga el STL del modelo):
+
+```bash
+# Si ya está compilado en el prefijo local, basta reinstalarlo en /usr/local:
+sudo cmake --install ~/parol6_ws/.d2co_deps/OpenMesh-8.1/build --prefix /usr/local
+sudo ldconfig
+
+# En una máquina nueva: descargar de https://www.openmesh.org y compilar
+#   cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr/local ..
+#   make -j4 && sudo make install && sudo ldconfig
+```
+
+> **Error esperado y NO problemático** al reinstalar desde el build local:
+>
+> ```
+> CMake Error at .../src/OpenMesh/Tools/cmake_install.cmake:46 (file):
+>   file INSTALL cannot find ".../Build/lib/libOpenMeshTools.so.8.1"
+> ```
+>
+> En ese build solo se compiló el target `Core`, nunca `Tools`. D2CO enlaza
+> únicamente `libOpenMeshCore`, así que el fallo es inocuo: la instalación
+> de `Core` (librerías + cabeceras) ya ha terminado correctamente antes de
+> llegar a esa línea. Verifícalo con `ldconfig -p | grep OpenMesh`.
+
+#### El fallo típico y por qué ocurre
+
+```
+d2co_pose_estimator_node: error while loading shared libraries:
+    libglog.so.0: cannot open shared object file: No such file or directory
+```
+
+Suele desconcertar porque el `RUNPATH` del ejecutable **sí** incluye las rutas
+donde está `libglog`. La razón es que `DT_RUNPATH` solo se consulta para las
+dependencias **directas** del objeto que lo lleva: no se propaga a las
+dependencias de sus dependencias. Y `libglog` no la pide el nodo, la pide
+`libceres.so.1`. Por eso `libglog` **tiene que estar visible para `ldconfig`**,
+es decir, instalada en el sistema. No basta con que exista en el árbol del
+proyecto.
+
+> **Solución de emergencia** (solo si no puedes instalar paquetes): exportar
+> la ruta antes de lanzar el nodo o cualquier script que lo use. No es la vía
+> recomendada; hay que repetirlo en cada terminal.
+>
+> ```bash
+> export LD_LIBRARY_PATH=$HOME/parol6_ws/.d2co_deps/root/usr/lib/x86_64-linux-gnu:$LD_LIBRARY_PATH
+> ```
+
+#### Comprobar que está todo
+
+```bash
+ldd $(ros2 pkg prefix parol6_d2co)/lib/parol6_d2co/d2co_pose_estimator_node \
+    | grep "not found"       # sin salida = correcto
+```
 
 ### 2. Modelo CAD pre-escalado (una sola vez)
 

@@ -157,6 +157,9 @@ private:
   
   int num_directions_;
   float eta_direction_;
+  // Coste asignado a un punto del modelo que se proyecta FUERA de la imagen.
+  // Se fija en setInput() al peor valor presente en el tensor. Ver getDistance().
+  float out_of_image_penalty_ = 0.0f;
 
   std::vector< std::vector<cv::Point> > templates_pts_;
   std::vector< std::vector<int> > templates_i_dir_;

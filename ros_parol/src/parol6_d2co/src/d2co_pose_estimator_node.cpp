@@ -511,6 +511,13 @@ private:
     obj_model_ = std::make_shared<RasterObjectModel3D>();
     obj_model_->setCamModel(cam_model_);
     obj_model_->setStepMeters(step_meters_);
+    // IMPRESCINDIBLE: el default de RasterObjectModel es MILLIMETER
+    // (raster_object_model.cpp aplica multiplier = 1/unit_meas_). Nuestro STL
+    // ya viene PRE-ESCALADO en metros, asi que sin esta linea el modelo se
+    // encoge x1000 (el tubo de 0.186 m pasa a 0.186 mm) y se proyecta como un
+    // unico pixel: el optimizador ajusta ese punto contra cualquier borde y la
+    // pose resultante es arbitraria.
+    obj_model_->setUnitOfMeasure(RasterObjectModel::METER);
     // Origen en el centro del bounding box ⇒ la pose 6D es la del CENTRO
     // geométrico del tubo (misma convención que el nodo ICP / tube_link).
     obj_model_->setBBCenterOrigOffset();

@@ -1296,7 +1296,19 @@ void DirectionalChamferMatching::setInput( const ImageTensorPtr& dist_map_tensor
     throw invalid_argument("Invalid input data");  
   
   dist_map_tensor_ptr_ = dist_map_tensor_ptr;
-  
+
+  // Peor valor presente en el tensor: es el coste que se asigna a los puntos
+  // del modelo que caen FUERA de la imagen (ver getDistance). Sin el, sacar
+  // puntos del encuadre ABARATABA la puntuacion en vez de encarecerla.
+  out_of_image_penalty_ = 0.0f;
+  for( int i = 0; i < num_directions_; i++ )
+  {
+    double min_v, max_v;
+    cv::minMaxLoc( dist_map_tensor_ptr_->at(i), &min_v, &max_v );
+    if( float(max_v) > out_of_image_penalty_ )
+      out_of_image_penalty_ = float(max_v);
+  }
+
 #if CHAMFER_MATCHING_FAST_MAP
   // TODO Switch each map to ushort type?
   fast_dist_map_tensor_.create(dist_map_tensor_ptr->at(0).rows, dist_map_tensor_ptr->at(0).cols, 
@@ -1605,25 +1617,54 @@ double DirectionalChamferMatching::getDistance(const std::vector< Point2f > &pro
   double avg_dist = 0;
 
   ImageTensor &dist_map_tensor = *dist_map_tensor_ptr_;
+  const int img_w = dist_map_tensor[0].cols, img_h = dist_map_tensor[0].rows;
+
   for( int i = 0; i < int(proj_pts.size()); i++ )
   {
     const Point2f &coord = proj_pts.at(i);
-    // TODO Obsolete
-    if( coord.x >= 0)
+
+    // PinholeSceneProjector marca los puntos OCLUIDOS exactamente como
+    // (-1,-1). La autooclusion es legitima (la cara trasera del objeto no se
+    // ve), asi que esos puntos no entran en el promedio.
+    if( coord.x == -1.0f && coord.y == -1.0f )
+      continue;
+
+    // Todo lo demas es una proyeccion real y cuenta en el denominador,
+    // este o no dentro del encuadre.
+    n_pts++;
+
+    const int x = cvRound(coord.x), y = cvRound(coord.y);
+
+    // FIX (dos defectos en el codigo original, que hacia solo `if(coord.x>=0)`):
+    //
+    //  1. LECTURA FUERA DE LIMITES. No habia cota superior para x ni ninguna
+    //     comprobacion de y, y se leia dist_map_tensor[z].at<float>(y,x)
+    //     directamente. cv::Mat::at no valida indices en release, asi que en
+    //     cuanto la pose proyectaba el modelo fuera de la imagen se leia
+    //     memoria ajena: comportamiento indefinido, y el valor corrupto es
+    //     justo el que se usa como puntuacion de aceptacion.
+    //
+    //  2. LOS PUNTOS FUERA DE IMAGEN NO PENALIZABAN. Quedaban fuera del
+    //     numerador Y del denominador, de modo que una pose que sacase casi
+    //     todo el modelo del encuadre (o lo encogiese alejandolo) puntuaba
+    //     como perfecta con los pocos puntos que quedaban sobre algun borde.
+    //
+    // Ahora esos puntos cuestan lo peor que hay en el tensor.
+    if( x < 0 || y < 0 || x >= img_w || y >= img_h )
     {
-      n_pts++;
-
-      float direction = normal_directions[i] + M_PI/2;
-      if( direction >= M_PI/2 )
-        direction -= M_PI;
-      direction += M_PI/2;
-
-      int x = cvRound(coord.x), y = cvRound(coord.y);
-      int z = cvRound(eta_direction_*direction);
-      z %= num_directions_;
-
-      avg_dist += dist_map_tensor[z].at<float>( y, x );
+      avg_dist += out_of_image_penalty_;
+      continue;
     }
+
+    float direction = normal_directions[i] + M_PI/2;
+    if( direction >= M_PI/2 )
+      direction -= M_PI;
+    direction += M_PI/2;
+
+    int z = cvRound(eta_direction_*direction);
+    z %= num_directions_;
+
+    avg_dist += dist_map_tensor[z].at<float>( y, x );
   }
 
   if( n_pts )
