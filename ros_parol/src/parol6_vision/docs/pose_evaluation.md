@@ -50,8 +50,11 @@ ros2 launch parol6_gazebo dataset_generation.launch.py \
 (La versión original, `~/parol6_pose_eval_dataset`, se generó sin
 `randomize_lighting` y con `save_hard_samples` por defecto: 31 muestras
 `hard` sin etiqueta en test y splits 284/115/201 en vez de 300/120/180.
-Los scripts de evaluación siguen apuntando a ella por defecto: para la
-nueva, pasa `--dataset ~/parol6_pose_eval_dataset_v3`.)
+Los scripts de evaluación apuntan por defecto a la v3; para la original,
+pasa `--dataset ~/parol6_pose_eval_dataset`.)
+
+Resultados de la evaluación sobre la v3 (y comparación con la original):
+`results/pose_eval_v3/README.md`.
 
 Qué cambia respecto al dataset YOLO:
 
@@ -75,8 +78,8 @@ Qué cambia respecto al dataset YOLO:
 Validación antes de usarlo (igual que el dataset YOLO):
 
 ```bash
-ros2 run parol6_vision visualize_dataset_samples.py --dataset_dir ~/parol6_pose_eval_dataset --n 20 --check
-ros2 run parol6_vision dataset_stats.py --dataset_dir ~/parol6_pose_eval_dataset
+ros2 run parol6_vision visualize_dataset_samples.py --dataset_dir ~/parol6_pose_eval_dataset_v3 --n 20 --check
+ros2 run parol6_vision dataset_stats.py --dataset_dir ~/parol6_pose_eval_dataset_v3
 ```
 
 ## 3. Harness común: `eval_pose_dataset.py`
@@ -100,7 +103,7 @@ Secuencia recomendada:
 
 ```bash
 # detector real, una vez
-ros2 run parol6_vision cache_yolo_detections.py --dataset ~/parol6_pose_eval_dataset
+ros2 run parol6_vision cache_yolo_detections.py --dataset ~/parol6_pose_eval_dataset_v3
 
 # ICP: cota superior y realista, bbox perfecta y bbox YOLO (sin ROS)
 ros2 run parol6_vision eval_pose_dataset.py --estimator icp_lib --cloud depth_gt --bbox gt_visib --csv results/icp_depthgt_gt.csv

@@ -1,0 +1,76 @@
+# ═══════════════════════════════════════════════════════════════════════════
+# icp_pose_params.yaml — Parámetros del nodo de pose 6D YOLOv8 + ICP.
+#
+# Cárgalo con:
+#   ros2 run parol6_vision icp_pose_estimator_node.py \
+#       --ros-args --params-file <ruta>/icp_pose_params.yaml
+# o desde el launch (icp_pose.launch.py ya lo hace).
+# ═══════════════════════════════════════════════════════════════════════════
+
+icp_pose_estimator_node:
+  ros__parameters:
+
+    # ── Tópicos de entrada/salida ──────────────────────────────────────────
+    detections_topic:   "/vision/detections"          # bbox 2D de YOLO
+    pointcloud_topic:   "/navcam/pointcloud"           # nube 3D de la escena
+    depth_topic:        "/navcam/left/navcam_left/depth/image_raw"
+    camera_info_topic:  "/navcam/left/navcam_left/camera_info"
+    pose_topic:         "/vision/tube_pose"            # PoseStamped (principal)
+    legacy_pose_topic:  "/pose_target_cuaterniones"    # Pose (compat. IK)
+    scene_debug_topic:  "/vision/icp_scene_cloud"      # nube recortada (RViz)
+    model_debug_topic:  "/vision/icp_aligned_model"    # modelo alineado (RViz)
+
+    # ── Fuente de la nube ──────────────────────────────────────────────────
+    # 'pointcloud' -> usa <pointcloud_topic> (sensor_msgs/PointCloud2)
+    # 'depth'      -> usa <depth_topic>      (sensor_msgs/Image, deproyectada)
+    cloud_source:  "pointcloud"
+    depth_scale:   1.0        # 1.0 si depth en metros (32FC1); 0.001 si mm (16UC1)
+
+    # ── Frame de salida ────────────────────────────────────────────────────
+    # Vacío => la pose se publica en el frame de la nube (frame óptico de la
+    # cámara). Si pones p.ej. "base_link" o "world", el nodo transforma la
+    # pose a ese frame usando TF2 (necesita la cadena de TFs publicada).
+    output_frame:     "world"
+    tf_child_frame:   "tube_link_estimated"
+    broadcast_tf:         true     # publica TF output_frame -> tube_link_estimated
+    publish_legacy_pose:  true     # publica también Pose en legacy_pose_topic
+    publish_debug_clouds: true     # publica nubes de debug para RViz
+
+    # ── Modelo .stl ────────────────────────────────────────────────────────
+    # Vacío => share/parol6_gazebo/meshes/mars2020tube.stl
+    # El nodo aplica SIEMPRE la escala NO UNIFORME obligatoria
+    #   (0.022939, 0.022939, 0.033212)  antes de muestrear la nube de referencia.
+    stl_path:      ""
+    model_points:  5000       # nº de puntos muestreados de la malla escalada
+
+    # ── Detección YOLO / recorte ───────────────────────────────────────────
+    min_score:       0.3      # confianza mínima de la detección
+    target_class:    ""       # "" => cualquier clase; o p.ej. "red tube"
+    bbox_margin_px:  8.0      # margen extra (px) al recortar la nube por el bbox
+
+    # ── Filtrado de la nube de la escena ───────────────────────────────────
+    voxel_size:          0.003   # m — downsampling (≈ 1/7 del diámetro del tubo)
+    sor_neighbors:       20      # vecinos para statistical outlier removal
+    sor_std_ratio:       2.0     # umbral (desv. típicas) del outlier removal
+    remove_plane:        false   # DESACTIVADO para diagnóstico (test H2: ver si
+    plane_dist_thresh:   0.006   # m — tolerancia del plano RANSAC (subido
+                                 #     para capturar mejor el terreno marciano
+                                 #     con relieve sutil)
+    cluster_eps:         0.012   # m — radio DBSCAN para aislar el tubo
+    cluster_min_points:  30      # nº mínimo de puntos por cluster DBSCAN
+
+    # ── Registro ICP ───────────────────────────────────────────────────────
+    icp_max_corr_dist:        0.0    # m — distancia máx. de correspondencia
+                                     #     (0.0 => 3 × voxel_size)
+    icp_max_iter:             80     # iteraciones máximas del ICP
+    icp_point_to_plane:       true   # true=point-to-plane (mejor), false=point-to-point
+    use_global_registration:  false  # RANSAC+FPFH como hipótesis inicial extra
+    min_fitness:              0.20   # fitness mínimo para aceptar la pose [0..1]
+                                     # (subido: la pose se rechaza si el cluster
+                                     # contiene mucho fondo no-tubo, evitando
+                                     # publicar estimaciones incorrectas)
+    max_rmse:                 0.005  # m — RMSE máximo de inliers para aceptar
+    min_cloud_points:         60     # nº mínimo de puntos para intentar el ICP
+
+    # ── Frecuencia de procesado ────────────────────────────────────────────
+    process_rate:  2.0       # Hz — cada cuánto se ejecuta el pipeline completo

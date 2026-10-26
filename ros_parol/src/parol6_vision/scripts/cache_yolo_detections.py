@@ -17,7 +17,7 @@ Formato de salida (JSON):
      "detections": {"<im_id>": [{"xyxy": [x1,y1,x2,y2], "conf": c, "cls": "name"}, ...]}}
 
 Uso:
-    ros2 run parol6_vision cache_yolo_detections.py --dataset ~/parol6_pose_eval_dataset
+    ros2 run parol6_vision cache_yolo_detections.py --dataset ~/parol6_pose_eval_dataset_v3
     ros2 run parol6_vision cache_yolo_detections.py --dataset DIR --split test --conf 0.3
 """
 
@@ -33,7 +33,7 @@ import time
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.split('\n')[1],
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument('--dataset', default=os.path.expanduser('~/parol6_pose_eval_dataset'))
+    ap.add_argument('--dataset', default=os.path.expanduser('~/parol6_pose_eval_dataset_v3'))
     ap.add_argument('--split', nargs='*', default=[], help='splits a procesar (vacío = todos)')
     ap.add_argument('--model', default='best.pt',
                     help='ruta o nombre en parol6_vision/models (default best.pt)')

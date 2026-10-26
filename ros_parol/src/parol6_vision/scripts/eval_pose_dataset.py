@@ -62,7 +62,7 @@ USO
   ros2 run parol6_vision eval_pose_dataset.py --estimator icp_lib --cloud depth_gt \\
       --split test --csv results/icp_lib_depthgt_gtbbox.csv
   # 2) ICP realista (SGBM + YOLO cacheado)
-  ros2 run parol6_vision cache_yolo_detections.py --dataset ~/parol6_pose_eval_dataset
+  ros2 run parol6_vision cache_yolo_detections.py --dataset ~/parol6_pose_eval_dataset_v3
   ros2 run parol6_vision eval_pose_dataset.py --estimator icp_lib --cloud sgbm \\
       --bbox yolo --split test --csv results/icp_lib_sgbm_yolo.csv
   # 3) D2CO con el nodo real
@@ -87,7 +87,7 @@ from typing import Optional
 import numpy as np
 
 ADDS_DIAMETER_FRACTION = 0.1
-DEFAULT_DATASET = os.path.expanduser('~/parol6_pose_eval_dataset')
+DEFAULT_DATASET = os.path.expanduser('~/parol6_pose_eval_dataset_v3')
 DEFAULT_FRAME = 'navcam_left_optical_frame'
 
 

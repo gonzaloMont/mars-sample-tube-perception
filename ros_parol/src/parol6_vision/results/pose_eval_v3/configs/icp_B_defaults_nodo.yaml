@@ -1,0 +1,39 @@
+# Config B: config/icp_pose_params.yaml con los 4 valores que difieren de los
+# defaults del nodo (icp_pose_estimator_node.py) devueltos a esos defaults.
+icp_pose_estimator_node:
+  ros__parameters:
+    detections_topic: /vision/detections
+    pointcloud_topic: /navcam/pointcloud
+    depth_topic: /navcam/left/navcam_left/depth/image_raw
+    camera_info_topic: /navcam/left/navcam_left/camera_info
+    pose_topic: /vision/tube_pose
+    legacy_pose_topic: /pose_target_cuaterniones
+    scene_debug_topic: /vision/icp_scene_cloud
+    model_debug_topic: /vision/icp_aligned_model
+    cloud_source: pointcloud
+    depth_scale: 1.0
+    output_frame: world
+    tf_child_frame: tube_link_estimated
+    broadcast_tf: true
+    publish_legacy_pose: true
+    publish_debug_clouds: true
+    stl_path: ''
+    model_points: 5000
+    min_score: 0.3
+    target_class: ''
+    bbox_margin_px: 8.0
+    voxel_size: 0.003
+    sor_neighbors: 20
+    sor_std_ratio: 2.0
+    remove_plane: true
+    plane_dist_thresh: 0.004
+    cluster_eps: 0.012
+    cluster_min_points: 30
+    icp_max_corr_dist: 0.0
+    icp_max_iter: 80
+    icp_point_to_plane: true
+    use_global_registration: false
+    min_fitness: 0.45
+    max_rmse: 0.006
+    min_cloud_points: 60
+    process_rate: 2.0

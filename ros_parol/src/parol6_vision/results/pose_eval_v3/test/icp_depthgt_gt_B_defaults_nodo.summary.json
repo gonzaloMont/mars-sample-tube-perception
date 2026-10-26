@@ -1,0 +1,137 @@
+{
+ "label": "icp_lib cloud=depth_gt bbox=gt_visib",
+ "n": 222,
+ "coverage": 0.9864864864864865,
+ "recall_total": 0.8423423423423423,
+ "recall_accepted": 0.8538812785388128,
+ "med_add_s_mm": 2.103,
+ "med_err_trans_mm": 2.404,
+ "med_err_radial_mm": 0.628,
+ "med_err_lateral_mm": 2.347,
+ "med_err_axis_deg": 0.129,
+ "radial_bias_mm": -6.878931506849316,
+ "strat/visibilidad/0.00-0.25": {
+  "n": 19,
+  "coverage": 0.9473684210526316,
+  "recall": 0.2631578947368421
+ },
+ "strat/visibilidad/0.25-0.50": {
+  "n": 37,
+  "coverage": 0.9729729729729729,
+  "recall": 0.5945945945945946
+ },
+ "strat/visibilidad/0.50-0.75": {
+  "n": 20,
+  "coverage": 1.0,
+  "recall": 0.8
+ },
+ "strat/visibilidad/0.75-0.90": {
+  "n": 12,
+  "coverage": 1.0,
+  "recall": 1.0
+ },
+ "strat/visibilidad/0.90-1.01": {
+  "n": 134,
+  "coverage": 0.9925373134328358,
+  "recall": 0.9850746268656717
+ },
+ "strat/modo/buried": {
+  "n": 54,
+  "coverage": 1.0,
+  "recall": 0.8703703703703703
+ },
+ "strat/modo/grounded": {
+  "n": 168,
+  "coverage": 0.9821428571428571,
+  "recall": 0.8333333333333333
+ },
+ "strat/cabeza visible/0": {
+  "n": 75,
+  "coverage": 0.9733333333333333,
+  "recall": 0.76
+ },
+ "strat/cabeza visible/1": {
+  "n": 147,
+  "coverage": 0.9931972789115646,
+  "recall": 0.8843537414965986
+ },
+ "strat/brazo/home": {
+  "n": 54,
+  "coverage": 1.0,
+  "recall": 0.9259259259259259
+ },
+ "strat/brazo/random": {
+  "n": 168,
+  "coverage": 0.9821428571428571,
+  "recall": 0.8154761904761905
+ },
+ "strat/oclusi\u00f3n planificada/heavy": {
+  "n": 21,
+  "coverage": 0.9523809523809524,
+  "recall": 0.5238095238095238
+ },
+ "strat/oclusi\u00f3n planificada/light": {
+  "n": 91,
+  "coverage": 1.0,
+  "recall": 0.8571428571428571
+ },
+ "strat/oclusi\u00f3n planificada/none": {
+  "n": 110,
+  "coverage": 0.9818181818181819,
+  "recall": 0.890909090909091
+ },
+ "strat/n\u00ba tubos en imagen/1": {
+  "n": 152,
+  "coverage": 0.9802631578947368,
+  "recall": 0.8092105263157895
+ },
+ "strat/n\u00ba tubos en imagen/2": {
+  "n": 28,
+  "coverage": 1.0,
+  "recall": 0.8571428571428571
+ },
+ "strat/n\u00ba tubos en imagen/3": {
+  "n": 42,
+  "coverage": 1.0,
+  "recall": 0.9523809523809524
+ },
+ "args": {
+  "dataset": "/home/gonzalo/parol6_pose_eval_dataset_v3",
+  "split": [
+   "test"
+  ],
+  "ids": null,
+  "limit": 0,
+  "min_visib": 0.0,
+  "estimator": "icp_lib",
+  "cloud": "depth_gt",
+  "stereo_params": "",
+  "icp_params": "/home/gonzalo/parol6_ws/src/PAROL6/ros_parol/src/parol6_vision/results/pose_eval_v3/configs/icp_B_defaults_nodo.yaml",
+  "stl": "/home/gonzalo/parol6_ws/install/parol6_gazebo/share/parol6_gazebo/meshes/mars2020tube.stl",
+  "model_points": 800,
+  "bbox": "gt_visib",
+  "bbox_margin_px": 0.0,
+  "bbox_jitter_px": 0.0,
+  "yolo_json": "",
+  "yolo_iou_min": 0.3,
+  "seed": 0,
+  "csv": "test/icp_depthgt_gt_B_defaults_nodo.csv",
+  "overlay_dir": "test/overlays_icp_depthgt_gt_B_defaults_nodo",
+  "overlay_n": 30,
+  "progress_every": 25,
+  "verbose": false,
+  "image_topic": "/navcam/left/navcam_left/image_raw",
+  "camera_info_topic": "/navcam/left/navcam_left/camera_info",
+  "depth_topic": "/navcam/left/navcam_left/depth/image_raw",
+  "pointcloud_topic": "/navcam/pointcloud",
+  "detections_topic": "/vision/detections",
+  "pose_topic": "/vision/tube_pose",
+  "service": "",
+  "frame_id": "navcam_left_optical_frame",
+  "class_id": "0",
+  "settle_s": 0.4,
+  "repeat_publish": 2,
+  "timeout_s": 180.0,
+  "max_attempts": 3
+ }
+}
