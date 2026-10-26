@@ -45,7 +45,7 @@ DEFAULT_PARAMS = {
     'min_depth': 0.30,         # m
     'max_depth': 2.0,          # m
     'scale_factor': 0.5,       # factor de reducción de la imagen
-    'wls_lambda': 8000.0,
+    'wls_lambda': 500.0,       # antes 8000 (ver results/pose_eval_v3/README.md §4)
     'wls_sigma': 1.5,
     'accumulate_frames': 4,    # solo lo usa el nodo (fusión multi-frame)
 }

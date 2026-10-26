@@ -1,0 +1,42 @@
+# ═══════════════════════════════════════════════════════════════════════════
+# stereo_pointcloud_params.yaml — Parámetros del nodo de nube estéreo
+# (stereo_pointcloud_node.py). Los defaults son los de
+# parol6_vision/stereo_utils.py::DEFAULT_PARAMS, compartidos con la
+# evaluación offline (eval_pose_dataset.py --cloud sgbm): cambiar aquí un
+# valor NO cambia la evaluación offline; pásale el mismo yaml con
+# --stereo-params para mantener ambas en sincronía.
+#
+#   ros2 launch parol6_vision icp_pose.launch.py enable_stereo:=true
+#   ros2 run parol6_vision stereo_pointcloud_node.py --ros-args --params-file <este>
+# ═══════════════════════════════════════════════════════════════════════════
+stereo_pointcloud:
+  ros__parameters:
+    left_image_topic:  "/navcam/left/navcam_left/image_raw"
+    right_image_topic: "/navcam/right/navcam_right/image_raw"
+    left_info_topic:   "/navcam/left/navcam_left/camera_info"
+    right_info_topic:  "/navcam/right/navcam_right/camera_info"
+    output_topic:      "/navcam/pointcloud"
+    output_frame:      "navcam_left_optical_frame"
+    left_frame_id:     "navcam_left_optical_frame"
+    right_frame_id:    "navcam_right_optical_frame"
+
+    # ── SGBM ───────────────────────────────────────────────────────────────
+    min_disparity:    0
+    num_disparities:  96      # múltiplo de 16; zona muerta = num_disparities/scale_factor px
+    block_size:       7       # impar, 3–11
+    uniqueness_ratio: 5
+    speckle_window:   100
+    speckle_range:    2
+    disp12_max_diff:  1
+
+    # ── Profundidad / escala ───────────────────────────────────────────────
+    min_depth:    0.30        # m
+    max_depth:    2.0         # m
+    scale_factor: 0.5         # las imágenes 1024² se procesan a 512²
+
+    # ── WLS (obligatorio) y fusión multi-frame ─────────────────────────────
+    wls_lambda: 500.0         # antes 8000: con 500, +9 pp de recall de ICP con SGBM
+                              # (results/pose_eval_v3/README.md §4)
+    wls_sigma:  1.5
+    accumulate_frames: 4      # disparidades ponderadas por confianza por nube publicada
+    sync_slop: 0.15

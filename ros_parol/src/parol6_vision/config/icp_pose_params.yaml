@@ -52,10 +52,11 @@ icp_pose_estimator_node:
     voxel_size:          0.003   # m — downsampling (≈ 1/7 del diámetro del tubo)
     sor_neighbors:       20      # vecinos para statistical outlier removal
     sor_std_ratio:       2.0     # umbral (desv. típicas) del outlier removal
-    remove_plane:        false   # DESACTIVADO para diagnóstico (test H2: ver si
-    plane_dist_thresh:   0.006   # m — tolerancia del plano RANSAC (subido
-                                 #     para capturar mejor el terreno marciano
-                                 #     con relieve sutil)
+    remove_plane:        true    # quitar el suelo ANTES del clustering: sin esto
+                                 # el cluster arrastra terreno y la PCA da un eje
+                                 # erróneo (val: +32 pp de recall con depth GT,
+                                 # results/pose_eval_v3/analysis/val.md)
+    plane_dist_thresh:   0.004   # m — tolerancia del plano RANSAC
     cluster_eps:         0.012   # m — radio DBSCAN para aislar el tubo
     cluster_min_points:  30      # nº mínimo de puntos por cluster DBSCAN
 
@@ -65,11 +66,10 @@ icp_pose_estimator_node:
     icp_max_iter:             80     # iteraciones máximas del ICP
     icp_point_to_plane:       true   # true=point-to-plane (mejor), false=point-to-point
     use_global_registration:  false  # RANSAC+FPFH como hipótesis inicial extra
-    min_fitness:              0.20   # fitness mínimo para aceptar la pose [0..1]
-                                     # (subido: la pose se rechaza si el cluster
-                                     # contiene mucho fondo no-tubo, evitando
-                                     # publicar estimaciones incorrectas)
-    max_rmse:                 0.005  # m — RMSE máximo de inliers para aceptar
+    min_fitness:              0.45   # fitness mínimo para aceptar la pose [0..1]
+                                     # (mismo recall que 0.20 y algo menos de poses
+                                     # erróneas publicadas; ver analysis/train.md)
+    max_rmse:                 0.006  # m — RMSE máximo de inliers para aceptar
     min_cloud_points:         60     # nº mínimo de puntos para intentar el ICP
 
     # ── Frecuencia de procesado ────────────────────────────────────────────
