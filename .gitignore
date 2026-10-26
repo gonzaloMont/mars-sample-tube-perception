@@ -2,3 +2,6 @@
 .venv
 __pycache__
 .claude 
+# Resultados de evaluación de pose: solo CSV/summary/md se versionan; overlays y logs no
+ros_parol/src/parol6_vision/results/**/overlays_*/
+ros_parol/src/parol6_vision/results/**/*.log

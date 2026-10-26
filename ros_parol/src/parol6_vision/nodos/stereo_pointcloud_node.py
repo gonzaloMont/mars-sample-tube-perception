@@ -69,6 +69,10 @@ from std_msgs.msg import Header
 import tf2_ros
 from geometry_msgs.msg import TransformStamped
 
+from parol6_vision.stereo_utils import (StereoMatcher, DEFAULT_PARAMS,
+                                        require_ximgproc,
+                                        disparity_debug_image)
+
 
 class StereoPointCloudNode(Node):
     """Genera una nube de puntos 3D fusionando varios frames estéreo (SGBM + WLS) de la NavCam."""
@@ -90,32 +94,19 @@ class StereoPointCloudNode(Node):
         self.declare_parameter('left_frame_id',  'navcam_left_optical_frame')
         self.declare_parameter('right_frame_id', 'navcam_right_optical_frame')
 
-        # Parámetros SGBM
-        self.declare_parameter('min_disparity',    0)
-        self.declare_parameter('num_disparities',  96)   # múltiplo de 16
-        self.declare_parameter('block_size',       7)     # impar, 3–11
-        self.declare_parameter('uniqueness_ratio', 5)
-        self.declare_parameter('speckle_window',   100)
-        self.declare_parameter('speckle_range',    2)
-        self.declare_parameter('disp12_max_diff',  1)
-
-        # Filtros de profundidad
-        self.declare_parameter('min_depth',    0.30)   # metros
-        self.declare_parameter('max_depth',    2.0)   # metros
-        self.declare_parameter('scale_factor', 0.5)    # factor de reducción
-
-        # Filtro WLS de disparidad — obligatorio (ver "Matcher derecho +
-        # filtro WLS" más abajo): no es solo suavizado, también provee el
-        # mapa de confianza que pondera la fusión multi-frame.
-        self.declare_parameter('wls_lambda', 8000.0)
-        self.declare_parameter('wls_sigma',  1.5)
-
-        # Fusión multi-frame: la escena es estática (mismo razonamiento que
-        # `skip_frames` en yolo26n_camera_subscriber.py), así que en vez de
-        # publicar una nube por frame se acumulan K disparidades ponderadas
-        # por confianza y se publica solo la fusión — menos ruido, menos
-        # carga aguas abajo en ICP.
-        self.declare_parameter('accumulate_frames', 4)
+        # Parámetros SGBM / WLS / profundidad / fusión: los defaults viven en
+        # parol6_vision.stereo_utils.DEFAULT_PARAMS (única fuente de verdad,
+        # compartida con la evaluación offline) y se pueden sobreescribir con
+        # config/stereo_pointcloud_params.yaml.
+        #   min_disparity, num_disparities (múltiplo de 16), block_size (impar
+        #   3–11), uniqueness_ratio, speckle_window, speckle_range,
+        #   disp12_max_diff, min_depth/max_depth [m], scale_factor,
+        #   wls_lambda/wls_sigma (WLS obligatorio: suaviza Y da el mapa de
+        #   confianza que pondera la fusión), accumulate_frames (la escena es
+        #   estática: se acumulan K disparidades ponderadas y se publica solo
+        #   la fusión).
+        for name, default in DEFAULT_PARAMS.items():
+            self.declare_parameter(name, default)
 
         # Tolerancia de sincronización temporal
         self.declare_parameter('sync_slop', 0.15)
@@ -167,57 +158,18 @@ class StereoPointCloudNode(Node):
         self._bridge = CvBridge()
 
         # ── Estado de calibración (inicializado una sola vez) ────────────────
+        # Toda la matemática estéreo (rectificación, SGBM 3WAY, matcher
+        # derecho, WLS, relleno de la zona muerta, reproyección) vive en
+        # parol6_vision.stereo_utils.StereoMatcher, compartida con la
+        # evaluación offline (eval_pose_dataset.py). Sin opencv-contrib el
+        # nodo aborta con un error explícito en vez de degradar la nube.
+        require_ximgproc()
         self._calib_ok   = False
-        self._map1l      = None   # mapa rectificación izquierda
-        self._map2l      = None
-        self._map1r      = None   # mapa rectificación derecha
-        self._map2r      = None
-        self._Q          = None   # matriz de reproyección
+        self._matcher    = None   # StereoMatcher (se crea con la 1ª calibración)
         self._scale      = self.get_parameter('scale_factor').value
         self._img_size   = None
-
-        # ── Matcher SGBM (izquierda como referencia) ─────────────────────────
-        blk  = self.get_parameter('block_size').value
-        P1   = 8  * blk * blk    # penalización suave (1 canal grayscale)
-        P2   = 32 * blk * blk    # penalización fuerte
-        self._num_disp = int(self.get_parameter('num_disparities').value)
-
-        self._sgbm = cv2.StereoSGBM_create(
-            minDisparity=self.get_parameter('min_disparity').value,
-            numDisparities=self._num_disp,
-            blockSize=blk,
-            P1=P1,
-            P2=P2,
-            disp12MaxDiff=self.get_parameter('disp12_max_diff').value,
-            uniquenessRatio=self.get_parameter('uniqueness_ratio').value,
-            speckleWindowSize=self.get_parameter('speckle_window').value,
-            speckleRange=self.get_parameter('speckle_range').value,
-            mode=cv2.STEREO_SGBM_MODE_SGBM_3WAY,
-        )
-
-        # ── Matcher derecho + filtro WLS (obligatorios) ───────────────────────
-        # Ya no son un simple "extra" de suavizado: el pipeline depende de
-        # ambos para dos cosas que no se pueden conseguir de otra forma:
-        #   1) disp_r permite reconstruir geométricamente la zona muerta SGBM
-        #      (ver _stereo_cb): WLS, sin él, únicamente la extrapola desde el
-        #      borde válido más cercano — nunca la reconstruye de verdad.
-        #   2) wls.getConfidenceMap() pondera la fusión multi-frame, detectando
-        #      correspondencias coherentes-pero-falsas que un filtro espacial
-        #      (los que ya aplica preprocess_scene_cloud aguas abajo) no vería.
-        # Sin opencv-contrib el nodo no puede cumplir los requisitos de
-        # precisión de ICP, así que se aborta con un error explícito en vez de
-        # degradar silenciosamente a una nube de menor calidad.
-        if not hasattr(cv2, 'ximgproc'):
-            raise RuntimeError(
-                'cv2.ximgproc no disponible (instala opencv-contrib-python). '
-                'Es obligatorio: WLS, mapa de confianza y fusión de zona '
-                'muerta dependen de él para que ICP reciba una nube fiable.'
-            )
-
-        self._sgbm_r = cv2.ximgproc.createRightMatcher(self._sgbm)
-        self._wls    = cv2.ximgproc.createDisparityWLSFilter(self._sgbm)
-        self._wls.setLambda(self.get_parameter('wls_lambda').value)
-        self._wls.setSigmaColor(self.get_parameter('wls_sigma').value)
+        self._num_disp   = int(self.get_parameter('num_disparities').value)
+        self._stereo_params = {n: self.get_parameter(n).value for n in DEFAULT_PARAMS}
 
         # ── Acumulador de fusión multi-frame ──────────────────────────────────
         self._accum_target = max(1, int(self.get_parameter('accumulate_frames').value))
@@ -241,26 +193,12 @@ class StereoPointCloudNode(Node):
         Calcula los mapas de rectificación a partir de CameraInfo + TF2.
         Devuelve True si la inicialización fue exitosa.
         """
-        scale    = self._scale
-        img_size = (int(li.width * scale), int(li.height * scale))
-
-        # Matrices intrínsecas
+        # Matrices intrínsecas de las imágenes ORIGINALES (StereoMatcher
+        # aplica el reescalado y la distorsión nula de Gazebo internamente).
         K1 = np.array(li.k, dtype=np.float64).reshape(3, 3)
         K2 = np.array(ri.k, dtype=np.float64).reshape(3, 3)
         D1 = np.array(li.d, dtype=np.float64)
         D2 = np.array(ri.d, dtype=np.float64)
-
-        # Escalar K si reducimos resolución
-        if scale != 1.0:
-            K1[:2] *= scale
-            K2[:2] *= scale
-
-        # Gazebo ideal → sin distorsión, pero nos aseguramos de que el vector
-        # tenga al menos 4 coeficientes para que OpenCV no proteste.
-        if D1.size < 4:
-            D1 = np.zeros(5, dtype=np.float64)
-        if D2.size < 4:
-            D2 = np.zeros(5, dtype=np.float64)
 
         # Extrínseca estéreo vía TF2.
         # lookup(target=left, source=right) devuelve la transformada que lleva
@@ -304,25 +242,15 @@ class StereoPointCloudNode(Node):
             f'R_diag={np.diag(R).round(4)}'
         )
 
-        # Rectificación: alpha=0.0 recorta solo a píxeles válidos, evita bordes
-        R1, R2, P1_m, P2_m, Q, _, _ = cv2.stereoRectify(
-            K1, D1, K2, D2,
-            img_size, R, T,
-            flags=cv2.CALIB_ZERO_DISPARITY,
-            alpha=0.0,
-        )
-        self._Q = Q
-
-        self._map1l, self._map2l = cv2.initUndistortRectifyMap(
-            K1, D1, R1, P1_m, img_size, cv2.CV_32FC1)
-        self._map1r, self._map2r = cv2.initUndistortRectifyMap(
-            K2, D2, R2, P2_m, img_size, cv2.CV_32FC1)
-
-        self._img_size = img_size
+        # Rectificación + matchers (compartidos con la evaluación offline)
+        self._matcher = StereoMatcher(K1, D1, K2, D2, R, T,
+                                      (int(li.width), int(li.height)),
+                                      self._stereo_params)
+        self._img_size = self._matcher.img_size
         self._calib_ok = True
         self.get_logger().info(
             f'Calibración estéreo inicializada. '
-            f'Imagen rectificada: {img_size}  Q[3,2]={Q[3,2]:.6f}'
+            f'Imagen rectificada: {self._img_size}  Q[3,2]={self._matcher.Q[3,2]:.6f}'
         )
         return True
 
@@ -361,65 +289,19 @@ class StereoPointCloudNode(Node):
             self.get_logger().warn(f'CvBridge error: {exc}')
             return
 
-        # ── Reducción de escala (mejora velocidad ~4x con scale=0.5) ─────────
-        if self._scale != 1.0:
-            left_cv  = cv2.resize(left_cv,  self._img_size, interpolation=cv2.INTER_AREA)
-            right_cv = cv2.resize(right_cv, self._img_size, interpolation=cv2.INTER_AREA)
-
-        # ── Rectificación ────────────────────────────────────────────────────
-        left_rect  = cv2.remap(left_cv,  self._map1l, self._map2l, cv2.INTER_LINEAR)
-        right_rect = cv2.remap(right_cv, self._map1r, self._map2r, cv2.INTER_LINEAR)
-
-        # ── Disparidad L→R, R→L y suavizado WLS (matchers obligatorios) ──────
-        disp_l_raw = self._sgbm.compute(left_rect,  right_rect)
-        disp_r_raw = self._sgbm_r.compute(right_rect, left_rect)
-        disp_f_raw = self._wls.filter(disp_l_raw, left_rect, None, disp_r_raw)
-
-        disp   = disp_f_raw.astype(np.float32) / 16.0   # disparidad filtrada L→R
-        disp_r = disp_r_raw.astype(np.float32) / 16.0   # disparidad R→L (para fusión)
-
-        # ── Fusión geométrica de la zona muerta SGBM ─────────────────────────
-        # Las primeras `num_disparities` columnas de la disparidad L→R son
-        # inválidas por geometría —la ventana de búsqueda se sale de la
-        # imagen—, no por ruido: WLS solo extrapola esos valores desde el
-        # borde válido más cercano, nunca los reconstruye (por eso persisten
-        # como "zona muerta" incluso filtrados). En un par rectificado, disp_l
-        # y disp_r comparten signo y magnitud (x_izq = x_der + disparidad), y
-        # la zona muerta L→R cae justo donde R→L SÍ tiene datos geométricamente
-        # válidos (su propia zona muerta queda en el extremo opuesto).
-        # Sustitución determinista, sin heurísticas ni umbrales de por medio:
-        nd = self._num_disp
-        disp[:, :nd] = disp_r[:, :nd]
-
-        # ── Mapa de confianza WLS → pesos para la fusión multi-frame ─────────
-        # getConfidenceMap() puntúa la fiabilidad de cada correspondencia
-        # estéreo; no es redundante con la limpieza espacial que ya aplica
-        # preprocess_scene_cloud() aguas abajo (outlier removal + RANSAC +
-        # DBSCAN), porque detecta coincidencias *coherentes pero falsas*
-        # —p. ej. texturas repetitivas del terreno marciano— que un filtro
-        # puramente espacial confundiría con superficie real.
-        #
-        # Trampa de "confianza obsoleta": WLS nunca evaluó la zona muerta, así
-        # que su confianza ahí es ~0 — ponderar con ese valor anularía en la
-        # fusión justo los píxeles que acabamos de recuperar geométricamente.
-        # Se sustituyen por la confianza MEDIA de la región válida: un peso
-        # neutro que ni privilegia ni penaliza esos píxeles frente al resto.
-        conf = self._wls.getConfidenceMap().astype(np.float32)
-        conf[:, :nd] = float(conf[:, nd:].mean()) if conf.shape[1] > nd else 1.0
-        weight = np.clip(conf, 1.0, None)   # ≥ 1 → ningún frame pesa cero
+        # ── Reescalado + rectificación + SGBM L→R/R→L + WLS + relleno de la
+        #    zona muerta + confianza → StereoMatcher.compute (ver stereo_utils:
+        #    la zona muerta L→R se sustituye por R→L, y su confianza WLS, que
+        #    sería ~0, por la media de la región válida como peso neutro).
+        out    = self._matcher.compute(left_cv, right_cv)
+        disp   = out['disp']      # disparidad filtrada L→R (zona muerta rellena)
+        weight = out['weight']    # ≥ 1 → ningún frame pesa cero
 
         # ── Publicar mapa de disparidad normalizado (debug, cada frame) ──────
         if self._disp_pub.get_subscription_count() > 0:
             min_d_val = float(self.get_parameter('min_disparity').value)
-            valid_disp = disp[disp > min_d_val + 1.0]
-            if valid_disp.size > 0:
-                d_min, d_max = float(valid_disp.min()), float(valid_disp.max())
-                norm = np.zeros_like(disp, dtype=np.uint8)
-                if d_max > d_min:
-                    mask = disp > min_d_val + 1.0
-                    norm[mask] = (
-                        (disp[mask] - d_min) / (d_max - d_min) * 255
-                    ).astype(np.uint8)
+            if (disp > min_d_val + 1.0).any():
+                norm = disparity_debug_image(disp, min_d_val)
                 disp_msg = self._bridge.cv2_to_imgmsg(norm, encoding='mono8')
                 disp_msg.header = Header(
                     stamp=left_img.header.stamp,
@@ -454,17 +336,7 @@ class StereoPointCloudNode(Node):
         self._reset_accumulator()
 
         # ── Reproyección 3D (vectorizada, una sola vez por lote fusionado) ───
-        pts3d = cv2.reprojectImageTo3D(disp_fused, self._Q)    # (H, W, 3)
-
-        min_d = float(self.get_parameter('min_disparity').value)
-        z     = pts3d[:, :, 2]
-
-        valid = (
-            (disp_fused > min_d + 1.0) &
-            np.isfinite(z) &
-            (z > self.get_parameter('min_depth').value) &
-            (z < self.get_parameter('max_depth').value)
-        )
+        pts3d, valid = self._matcher.reproject(disp_fused, return_organized=True)
 
         n_valid = int(valid.sum())
         self.get_logger().debug(
