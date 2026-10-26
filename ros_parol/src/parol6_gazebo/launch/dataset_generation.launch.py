@@ -73,6 +73,43 @@ def launch_setup(context, *args, **kwargs):
     mast_pitch = LaunchConfiguration('mast_pitch').perform(context)
     mast_yaw = LaunchConfiguration('mast_yaw').perform(context)
 
+    # ── Parámetros del generador expuestos como argumentos (v2.1) ─────────
+    # Los defaults coinciden con los del nodo, así que el dataset YOLO original
+    # se regenera igual. Para el set de EVALUACIÓN DE POSE:
+    #   stereo_capture:=true placement_mode:=footprint frac_floating:=0.0
+    #   negative_fraction:=0.0 split_ratios:=0.5,0.2,0.3
+    def _f(name):
+        return float(LaunchConfiguration(name).perform(context))
+
+    def _b(name):
+        return LaunchConfiguration(name).perform(context).strip().lower() in (
+            'true', '1', 'yes')
+
+    split_ratios = [float(v) for v in
+                    LaunchConfiguration('split_ratios').perform(context).split(',')]
+    if len(split_ratios) != 3 or abs(sum(split_ratios) - 1.0) > 1e-6:
+        raise RuntimeError(f'split_ratios debe ser 3 fracciones que sumen 1: '
+                           f'{split_ratios}')
+    generator_extra = {
+        'stereo_capture': _b('stereo_capture'),
+        'placement_mode': LaunchConfiguration('placement_mode').perform(context),
+        'footprint_cells_file': LaunchConfiguration('footprint_cells_file').perform(context),
+        'split_ratios': split_ratios,
+        'frac_grounded': _f('frac_grounded'),
+        'frac_floating': _f('frac_floating'),
+        'frac_buried': _f('frac_buried'),
+        'negative_fraction': _f('negative_fraction'),
+        'multi_tube_prob': _f('multi_tube_prob'),
+        'occlusion_fraction': _f('occlusion_fraction'),
+        'heavy_occlusion_fraction': _f('heavy_occlusion_fraction'),
+        'arm_clearance_m': _f('arm_clearance_m'),
+        'arm_home_fraction': _f('arm_home_fraction'),
+        'save_hard_samples': _b('save_hard_samples'),
+        'randomize_lighting': _b('randomize_lighting'),
+        'light_intensity_min': _f('light_intensity_min'),
+        'light_intensity_max': _f('light_intensity_max'),
+    }
+
     # Mundo: nombre corto conocido o ruta absoluta a un .world
     known_worlds = {
         'mars_optimized': os.path.join(pkg_parol6_gazebo, 'worlds',
@@ -210,6 +247,7 @@ def launch_setup(context, *args, **kwargs):
             'seed': int(seed),
             'start_index': int(start_index),
             'world_name': world_name,
+            **generator_extra,
         }],
     )
 
@@ -290,5 +328,43 @@ def generate_launch_description():
         DeclareLaunchArgument('mast_roll', default_value='0.0'),
         DeclareLaunchArgument('mast_pitch', default_value='0.91'),
         DeclareLaunchArgument('mast_yaw', default_value='0.3'),
+        # ── Modo evaluación de pose (v2.1); defaults = comportamiento original ─
+        DeclareLaunchArgument(
+            'stereo_capture', default_value='false',
+            description='Guardar par estéreo + depth GT izquierdo; GT en el '
+                        'frame óptico izquierdo (evaluación de ICP/D2CO)'),
+        DeclareLaunchArgument(
+            'placement_mode', default_value='image_bins',
+            description="'image_bins' (original) o 'footprint' (celdas "
+                        "agarrables por el brazo: config/grasp_footprint_cells.json)"),
+        DeclareLaunchArgument(
+            'footprint_cells_file', default_value='',
+            description='JSON de celdas de la huella (vacío => el del paquete)'),
+        DeclareLaunchArgument('split_ratios', default_value='0.70,0.20,0.10',
+                              description='Fracciones train,val,test'),
+        DeclareLaunchArgument('frac_grounded', default_value='0.70'),
+        DeclareLaunchArgument('frac_floating', default_value='0.15'),
+        DeclareLaunchArgument('frac_buried', default_value='0.15'),
+        DeclareLaunchArgument('negative_fraction', default_value='0.15'),
+        DeclareLaunchArgument('multi_tube_prob', default_value='0.15'),
+        DeclareLaunchArgument('occlusion_fraction', default_value='0.50'),
+        DeclareLaunchArgument('heavy_occlusion_fraction', default_value='0.12'),
+        DeclareLaunchArgument('arm_clearance_m', default_value='0.05',
+                              description='Holgura mínima brazo↔tubo por FK '
+                                          '(modo footprint; 0 = sin comprobar)'),
+        DeclareLaunchArgument('arm_home_fraction', default_value='0.3',
+                              description='Fracción de muestras con el brazo en '
+                                          'home (modo footprint)'),
+        DeclareLaunchArgument(
+            'save_hard_samples', default_value='true',
+            description='true: muestras con visib del tubo principal < '
+                        'min_visibility van a test sin etiqueta; false: se '
+                        'descartan y se regeneran (splits exactos)'),
+        DeclareLaunchArgument(
+            'randomize_lighting', default_value='false',
+            description='Intensidad difusa del sol aleatoria por escena '
+                        '(requiere libgazebo_ros_properties.so en el mundo)'),
+        DeclareLaunchArgument('light_intensity_min', default_value='0.55'),
+        DeclareLaunchArgument('light_intensity_max', default_value='1.0'),
         OpaqueFunction(function=launch_setup),
     ])

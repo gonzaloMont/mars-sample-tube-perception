@@ -159,15 +159,49 @@ Decisiones que hay que conocer:
   extremo −Z (tapa), y 3 puntos del borde de la cabeza a 0/120/240°. Con la
   simetría continua, el roll de los puntos del borde es arbitrario.
 * **Política de visibilidad**: la etiqueta YOLO usa `bbox_visib` y solo se
-  emite con `visib_fract ≥ 0.10`. Muestras cuyo tubo principal queda por
-  debajo se guardan marcadas `hard` y se enrutan **solo a test** (estrés de
-  los estimadores); ponlas a discard con `save_hard_samples:=false`.
+  emite con `visib_fract ≥ 0.10`. Con `save_hard_samples:=true` (defecto) las
+  muestras cuyo tubo principal queda por debajo se guardan marcadas `hard` y
+  se enrutan **solo a test**, sin etiqueta: en la evaluación de YOLO cuentan
+  como falsos positivos y en la de pose son fallos casi imposibles. Con
+  `save_hard_samples:=false` (argumento del launch) se descartan y la muestra
+  se regenera con el mismo split, así que los splits salen exactos.
 * **Split 70/20/10 determinista** por semilla. Hay una imagen por escena;
   si en el futuro se capturasen ambos ojos, los dos deben ir al mismo split.
 * **Evaluación de ICP/LINEMOD por oclusión**: agrupa las muestras por
   `visib_fract` (p. ej. bins [1.0–0.9], [0.9–0.7], [0.7–0.5], [0.5–0.3],
   [0.3–0.1]) y calcula ADD-S por bin: eso responde "¿hasta qué oclusión
   aguanta cada algoritmo?".
+
+## Modo evaluación de pose (v2.1): par estéreo + depth GT + huella agarrable
+
+Para evaluar ICP/D2CO hace falta lo que el dataset YOLO no tiene: el ojo
+derecho, la profundidad GT y tubos donde el brazo llega. El generador lo
+añade con dos parámetros (expuestos como argumentos del launch):
+
+```bash
+ros2 launch parol6_gazebo dataset_generation.launch.py num_samples:=600 \
+    output_dir:=$HOME/parol6_pose_eval_dataset_v3 seed:=42 \
+    stereo_capture:=true placement_mode:=footprint \
+    frac_grounded:=0.85 frac_buried:=0.15 frac_floating:=0.0 \
+    negative_fraction:=0.0 split_ratios:=0.5,0.2,0.3 \
+    randomize_lighting:=true save_hard_samples:=false
+```
+
+* `stereo_capture:=true`: la cámara de referencia es SIEMPRE la izquierda
+  (GT 6D en `navcam_left_optical_frame`); se guardan además
+  `images_right/` (par estéreo) y `depth/` (depth GT izquierdo, PNG uint16
+  en mm, `scene_camera.depth_scale = 0.001`), y `scene_camera.json` lleva
+  `cam_K_right`, `cam_R_l2r`, `cam_t_l2r` (`p_right = R·p_left + t`).
+* `placement_mode:=footprint`: los tubos se colocan en las celdas de
+  `config/grasp_footprint_cells.json` (huella de agarre top-down calculada
+  por `scripts/compute_grasp_footprint.py`, 1.12–1.34 m de la cámara), con
+  la altura del terreno cacheado; se ignora `min_dist_from_base`. El brazo
+  aleatorio se pre-filtra por cinemática directa para respetar una holgura
+  con los tubos (`arm_clearance_m`), y una fracción de muestras usa la pose
+  home (`arm_home_fraction`); `meta.jsonl` guarda `cells`, `terrain_z` y
+  `arm_mode`.
+
+Protocolo completo de evaluación: `docs/pose_evaluation.md`.
 
 ## Lo que NO hace (a propósito)
 
@@ -178,5 +212,42 @@ Decisiones que hay que conocer:
   tubo entra por el albedo del pool y, opcionalmente,
   `randomize_lighting:=true` (intensidad del sol; la dirección no se puede
   cambiar en Classic de forma fiable y se omite).
+
+## Iluminación aleatoria (`randomize_lighting:=true`)
+
+Por escena, la difusa del sol pasa a `[g, g·U(0.92,1), g·U(0.82,0.95)]` con
+`g ~ U(light_intensity_min, light_intensity_max)` (defecto 0.55–1.0); la
+atenuación se reenvía con los valores del mundo. El valor aplicado queda en
+`meta.jsonl` (`light_diffuse`; `null` = luz fija). Requisitos y límites:
+
+* El mundo debe cargar `libgazebo_ros_properties.so` (lo hace
+  `mars_optimized.world`), que ofrece `/get_light_properties` y
+  `/set_light_properties`. Si se pide luz aleatoria y el servicio no está, el
+  generador aborta en vez de seguir con luz fija.
+* El máximo es 1.0: `ignition::math::Color` interpreta componentes > 1 como
+  escala 0–255 (1.5 → 0.006, escena casi negra). El generador lo rechaza.
+* Efecto medido (misma escena, NavCam izquierda, media de la imagen):
+  difusa 0 → 29, 0.55 → 91, 0.78 → 115, 1.0 → 138. La ambiental del mundo
+  (0.5, `Ka` del terreno 0.4) solo aporta ~29 niveles.
+
+## Dataset YOLO con zona de trabajo (dos tandas)
+
+El generador admite un `placement_mode` por ejecución. Para que el detector
+vea también tubos en la huella agarrable, se generan dos tandas sobre el
+mismo `output_dir` (modo append): 70 % `image_bins` + 30 % `footprint`. Cada
+tanda hace su propio split 70/20/10, así que la proporción se conserva en
+train/val/test; semillas distintas para no repetir los pools de tubos/rocas.
+En `footprint` sin `stereo_capture` la cámara es izquierda o derecha al azar.
+
+```bash
+ros2 launch parol6_gazebo dataset_generation.launch.py num_samples:=700 \
+    output_dir:=$HOME/parol6_synth_dataset_v3 seed:=0 start_index:=0 \
+    placement_mode:=image_bins randomize_lighting:=true save_hard_samples:=false
+ros2 launch parol6_gazebo dataset_generation.launch.py num_samples:=300 \
+    output_dir:=$HOME/parol6_synth_dataset_v3 seed:=1 start_index:=700 \
+    placement_mode:=footprint randomize_lighting:=true save_hard_samples:=false
+```
+
+`meta.jsonl` guarda el modo de cada muestra en `placement`.
 * No mueve la NavCam ni la base del brazo (geometría mástil↔brazo fija, como
   el sistema real).

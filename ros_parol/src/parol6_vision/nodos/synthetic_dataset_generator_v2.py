@@ -93,7 +93,7 @@ from tf2_ros import Buffer, TransformListener
 from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 
 try:
-    from gazebo_msgs.srv import SetLightProperties
+    from gazebo_msgs.srv import GetLightProperties, SetLightProperties
     _HAS_SET_LIGHT = True
 except ImportError:  # versiones de gazebo_msgs sin el servicio
     _HAS_SET_LIGHT = False
@@ -283,6 +283,27 @@ class SyntheticDatasetGeneratorV2(Node):
         self.rock_pool = []        # [dict(name, size, kind)]
         self._light_warned = False
 
+        # Huella agarrable (modo footprint) y cadena FK del brazo
+        self.footprint_cells = None
+        self.footprint_cell = 0.02
+        if self.p['placement_mode'] == 'footprint':
+            path = self.p['footprint_cells_file']
+            if not path:
+                path = os.path.join(get_package_share_directory('parol6_vision'),
+                                    'config', 'grasp_footprint_cells.json')
+            with open(os.path.expanduser(path)) as f:
+                fp = json.load(f)
+            self.footprint_cells = np.asarray(fp['cells_xy'], dtype=float)
+            self.footprint_cell = float(fp.get('cell_size_m', 0.02))
+            if len(self.footprint_cells) == 0:
+                raise RuntimeError(f'Huella vacía en {path}')
+            self.get_logger().info(
+                f'Modo footprint: {len(self.footprint_cells)} celdas de '
+                f'{self.footprint_cell * 100:.0f} cm de {path}')
+        elif self.p['placement_mode'] != 'image_bins':
+            raise RuntimeError(f"placement_mode desconocido: {self.p['placement_mode']}")
+        self._T_world_base = None  # se resuelve por TF en run()
+
     def _declare_params(self):
         d = self.declare_parameter
         d('num_samples', 1000)
@@ -366,11 +387,37 @@ class SyntheticDatasetGeneratorV2(Node):
         d('num_rocks_max', 8)
         d('rock_pool_size', 14)
         # Varios
+        # Iluminación: intensidad difusa del sol por escena, U(min, max). Exige
+        # libgazebo_ros_properties.so en el mundo (/set_light_properties).
         d('randomize_lighting', False)
+        d('light_name', 'sun')
+        d('light_intensity_min', 0.55)
+        d('light_intensity_max', 1.0)
         d('max_attempts', 5)
         d('flush_every', 25)
         d('blocked_depth_m', 0.45)             # detección de brazo tapando la lente
         d('blocked_frac', 0.50)
+        # ── Modo EVALUACIÓN DE POSE (v2.1) ─────────────────────────────────
+        # stereo_capture: guarda también la imagen DERECHA y el depth GT
+        #   IZQUIERDO (PNG 16 bits en mm); la cámara de referencia pasa a ser
+        #   SIEMPRE la izquierda (GT 6D en navcam_left_optical_frame, que es
+        #   el frame de la nube estéreo y de los estimadores).
+        d('stereo_capture', False)
+        # placement_mode: 'image_bins' (original: bins de distancia × rejilla
+        #   de imagen) o 'footprint' (celdas XY agarrables por el brazo, de
+        #   config/grasp_footprint_cells.json; ver compute_grasp_footprint.py).
+        d('placement_mode', 'image_bins')
+        d('footprint_cells_file', '')          # JSON de celdas (frame base_link)
+        d('footprint_cell_jitter', 0.01)       # m: jitter uniforme dentro de la celda
+        d('footprint_terrain_max_z', 0.06)     # m: cerca de la base, por encima = brazo/placa
+        d('footprint_min_tube_sep', 0.12)      # m: separación mínima entre tubos (multi)
+        # Brazo en modo footprint: los tubos están bajo el brazo, así que la
+        # configuración aleatoria se pre-filtra por cinemática directa (FK):
+        # holgura mínima entre los eslabones y cada tubo, y ningún eslabón
+        # bajo el suelo. Una fracción de muestras usa la pose home.
+        d('arm_clearance_m', 0.05)             # 0 = sin comprobación de holgura (los tubos no colisionan: es holgura VISUAL)
+        d('arm_home_fraction', 0.3)
+        d('arm_link_radius', 0.05)             # m: radio aprox. de los eslabones
 
     def _read_params(self):
         names = [
@@ -397,8 +444,13 @@ class SyntheticDatasetGeneratorV2(Node):
             'save_hard_samples', 'bury_min_fraction', 'bury_max_fraction',
             'depth_visibility_epsilon', 'negative_fraction', 'multi_tube_prob',
             'max_tubes', 'num_rocks_min', 'num_rocks_max', 'rock_pool_size',
-            'randomize_lighting', 'max_attempts', 'flush_every',
+            'randomize_lighting', 'light_name', 'light_intensity_min',
+            'light_intensity_max', 'max_attempts', 'flush_every',
             'blocked_depth_m', 'blocked_frac',
+            'stereo_capture', 'placement_mode', 'footprint_cells_file',
+            'footprint_cell_jitter', 'footprint_terrain_max_z',
+            'footprint_min_tube_sep', 'arm_clearance_m', 'arm_home_fraction',
+            'arm_link_radius',
         ]
         self.p = {n: self.get_parameter(n).value for n in names}
 
@@ -490,15 +542,43 @@ class SyntheticDatasetGeneratorV2(Node):
         self.cli_unpause = self._make_client(
             Empty, ['/unpause_physics', '/gazebo/unpause_physics'])
         self.cli_set_light = None
-        if self.p['randomize_lighting'] and _HAS_SET_LIGHT:
+        if self.p['randomize_lighting']:
+            # Si se pide iluminación aleatoria y no se puede aplicar, se aborta:
+            # un dataset con luz fija sin aviso es peor que no generarlo.
+            if not _HAS_SET_LIGHT:
+                raise RuntimeError('gazebo_msgs sin SetLightProperties: '
+                                   'no se puede randomizar la iluminación')
+            # ignition::math::Color interpreta componentes > 1 como escala
+            # 0-255 (1.5 → 0.006): la escena saldría casi negra sin aviso.
+            lo, hi = self.p['light_intensity_min'], self.p['light_intensity_max']
+            if not 0.0 <= lo <= hi <= 1.0:
+                raise RuntimeError(f'light_intensity_min/max deben cumplir '
+                                   f'0 <= min <= max <= 1 (hay {lo}, {hi})')
             try:
                 self.cli_set_light = self._make_client(
                     SetLightProperties,
                     ['/set_light_properties', '/gazebo/set_light_properties'],
-                    timeout=10.0)
-            except RuntimeError:
-                self.get_logger().warning(
-                    'set_light_properties no disponible; iluminación fija.')
+                    timeout=30.0)
+                cli_get_light = self._make_client(
+                    GetLightProperties,
+                    ['/get_light_properties', '/gazebo/get_light_properties'],
+                    timeout=30.0)
+            except RuntimeError as e:
+                raise RuntimeError(
+                    f'{e}. ¿Carga el mundo libgazebo_ros_properties.so?') from e
+            req = GetLightProperties.Request()
+            req.light_name = self.p['light_name']
+            res = self._call(cli_get_light, req)
+            if not res.success:
+                raise RuntimeError(f'get_light_properties: {res.status_message}')
+            # La atenuación se reenvía tal cual (el servicio la exige); solo
+            # varía la difusa.
+            self._light_base = res
+            d = res.diffuse
+            self.get_logger().info(
+                f"Iluminación aleatoria: luz '{self.p['light_name']}' "
+                f'(difusa del mundo {d.r:.2f} {d.g:.2f} {d.b:.2f}), intensidad '
+                f"U({self.p['light_intensity_min']}, {self.p['light_intensity_max']})")
 
     def _pause(self):
         self._call(self.cli_pause, Empty.Request())
@@ -821,12 +901,107 @@ class SyntheticDatasetGeneratorV2(Node):
         margin = 0.05 * (hi - lo)
         return [self.rng.uniform(l, h) for l, h in zip(lo + margin, hi - margin)]
 
-    def _randomize_arm(self):
+    # Cadena cinemática del PAROL6 (parol6.urdf + gripper.urdf.xacro):
+    # (xyz, rpy, signo del eje Z de cada joint). Solo se usa como PRE-FILTRO
+    # geométrico de holgura brazo↔tubo; la pose real la sostiene el controlador.
+    _ARM_CHAIN = (
+        ((0.0, 0.0, 0.0), (0.0, 0.0, 0.0), +1),                                   # L1
+        ((0.0234207210610375, 0.0, 0.1105), (-1.5707963267949, 0.0, 0.0), +1),    # L2
+        ((0.0, -0.18, 0.0), (3.1416, 0.0, -1.5708), -1),                          # L3
+        ((0.0435, 0.0, 0.0), (1.5707963267949, 0.0, 3.14159265358979), -1),       # L4
+        ((0.0, 0.0, -0.17635), (-1.5708, 0.0, 0.0), -1),                          # L5
+        ((0.0, 0.0, 0.0), (1.5708, 0.0, 0.0), -1),                                # L6
+    )
+    _GRIPPER_JOINT = ((0.025, 0.0, -0.065), (0.0, -1.5708, 0.0))  # L6 → gripper_base_link
+    _FINGER_TIP_Z = -0.055                                        # punta de dedos en gripper_base_link
+
+    @staticmethod
+    def _rpy_T(xyz, rpy):
+        cr, sr = math.cos(rpy[0]), math.sin(rpy[0])
+        cp, sp = math.cos(rpy[1]), math.sin(rpy[1])
+        cy, sy = math.cos(rpy[2]), math.sin(rpy[2])
+        Rx = np.array([[1, 0, 0], [0, cr, -sr], [0, sr, cr]])
+        Ry = np.array([[cp, 0, sp], [0, 1, 0], [-sp, 0, cp]])
+        Rz = np.array([[cy, -sy, 0], [sy, cy, 0], [0, 0, 1]])
+        return make_T(Rz @ Ry @ Rx, xyz)
+
+    def _arm_fk_points(self, q):
+        """Puntos clave del brazo en el frame base_link para la configuración
+        q: orígenes de cada joint, gripper_base_link y punta de dedos."""
+        M = np.eye(4)
+        pts = [M[:3, 3].copy()]
+        for (xyz, rpy, sgn), qi in zip(self._ARM_CHAIN, q):
+            M = M @ self._rpy_T(xyz, rpy) @ make_T(rotz(sgn * qi), [0, 0, 0])
+            pts.append(M[:3, 3].copy())
+        M = M @ self._rpy_T(*self._GRIPPER_JOINT)
+        pts.append(M[:3, 3].copy())
+        tip = M @ np.array([0.0, 0.0, self._FINGER_TIP_Z, 1.0])
+        pts.append(tip[:3])
+        return np.array(pts)
+
+    @staticmethod
+    def _seg_seg_dist(p1, p2, q1, q2):
+        """Distancia mínima entre los segmentos [p1,p2] y [q1,q2]."""
+        u, v, w = p2 - p1, q2 - q1, p1 - q1
+        a, b, c = u @ u, u @ v, v @ v
+        d, e = u @ w, v @ w
+        den = a * c - b * b
+        sc = 0.0 if den < 1e-12 else min(max((b * e - c * d) / den, 0.0), 1.0)
+        tc = (b * sc + e) / c if c > 1e-12 else 0.0
+        tc = min(max(tc, 0.0), 1.0)
+        sc = min(max((b * tc - d) / a, 0.0), 1.0) if a > 1e-12 else 0.0
+        return float(np.linalg.norm((p1 + sc * u) - (q1 + tc * v)))
+
+    def _arm_config_clear(self, q, tubes_world):
+        """True si (por FK) ningún eslabón queda bajo el suelo ni a menos de
+        arm_clearance_m de ningún tubo. tubes_world: lista de T world."""
+        pts = self._arm_fk_points(q)
+        Tb = self._T_world_base if self._T_world_base is not None else np.eye(4)
+        pts = pts @ Tb[:3, :3].T + Tb[:3, 3]
+        r_link = self.p['arm_link_radius']
+        # Anti-suelo por FK (evita comandar movimientos que fallarán)
+        if np.any(pts[2:, 2] - r_link < self.p['arm_min_link_z'] - 0.02):
+            return False
+        clr = self.p['arm_clearance_m']
+        if clr <= 0 or not tubes_world:
+            return True
+        for T in tubes_world:
+            ctr, ax = T[:3, 3], T[:3, 2]
+            q1, q2 = ctr - self.tube_half * ax, ctr + self.tube_half * ax
+            for i in range(1, len(pts)):
+                d = self._seg_seg_dist(pts[i - 1], pts[i], q1, q2)
+                if d - r_link - self.tube_radius < clr:
+                    return False
+        return True
+
+    def _randomize_arm(self, tubes_world=()):
         """Comanda una configuración válida y espera asentamiento. El
         controlador mantiene la pose (nada de set_model_configuration, que
-        colapsa por gravedad al reanudar)."""
+        colapsa por gravedad al reanudar). En modo footprint pre-filtra por
+        FK la holgura respecto a los tubos (que están bajo el brazo)."""
+        use_clear = self.p['placement_mode'] == 'footprint'
+        self._arm_mode = 'random'
+        if use_clear and self.rng.random() < self.p['arm_home_fraction']:
+            q = list(self.p['arm_home'])
+            if self._arm_config_clear(q, tubes_world):
+                self._arm_mode = 'home'
+                self._command_arm(q)
+                if self.p['randomize_gripper']:
+                    self._command_gripper(
+                        self.rng.uniform(0.0, self.p['gripper_max_opening']))
+                if self._wait_arm_settled(q) and self._arm_links_above_ground():
+                    return q
         for _ in range(4):
             q = self._random_arm_config()
+            if use_clear:
+                # Rechazo barato por FK antes de mover nada
+                for _k in range(400):
+                    if self._arm_config_clear(q, tubes_world):
+                        break
+                    q = self._random_arm_config()
+                else:
+                    self._note_discard('arm_no_clear_config')
+                    q = list(self.p['arm_home'])
             self._command_arm(q)
             if self.p['randomize_gripper']:
                 self._command_gripper(
@@ -880,15 +1055,29 @@ class SyntheticDatasetGeneratorV2(Node):
             cam = T[:3, 3]
             dist = np.linalg.norm(P - cam, axis=-1)
             r_base = np.hypot(P[..., 0], P[..., 1])
-            valid = (np.isfinite(z)
-                     & (P[..., 2] < self.p['terrain_max_z'])
-                     & (r_base < self.p['terrain_radius'])
-                     & (r_base > self.p['min_dist_from_base'])
-                     & (dist >= self.p['camera_distance_min'])
-                     & (dist <= self.p['camera_distance_max']))
+            if self.p['placement_mode'] == 'footprint':
+                # Sin exclusión por distancia a la base: los tubos van DEBAJO
+                # del brazo. Cerca de la base el umbral de altura es más
+                # estricto para no confundir eslabones/placa con terreno.
+                max_z = np.where(r_base < 0.6,
+                                 self.p['footprint_terrain_max_z'],
+                                 self.p['terrain_max_z'])
+                valid = (np.isfinite(z)
+                         & (P[..., 2] < max_z)
+                         & (r_base < self.p['terrain_radius']))
+            else:
+                valid = (np.isfinite(z)
+                         & (P[..., 2] < self.p['terrain_max_z'])
+                         & (r_base < self.p['terrain_radius'])
+                         & (r_base > self.p['min_dist_from_base'])
+                         & (dist >= self.p['camera_distance_min'])
+                         & (dist <= self.p['camera_distance_max']))
             self.terrain[side] = {'P': P, 'dist': dist.astype(np.float32),
                                   'valid': valid, 'T_w_o': T, 'cam': cam,
-                                  'w': w, 'h': h, 'K': K}
+                                  'w': w, 'h': h, 'K': K,
+                                  # arrays planos para consultas por XY world
+                                  'xy_valid': P[valid][:, :2],
+                                  'z_valid': P[valid][:, 2]}
             frac = float(valid.mean())
             self.get_logger().info(
                 f'Caché de terreno {side}: {frac * 100:.1f}% de píxeles útiles')
@@ -922,6 +1111,79 @@ class SyntheticDatasetGeneratorV2(Node):
     # ──────────────────────────────────────────────────────────────────────
     # Construcción de escena
     # ──────────────────────────────────────────────────────────────────────
+
+    def _terrain_z_at(self, side, x, y):
+        """Altura del terreno cacheado bajo (x, y) world: mediana de los
+        píxeles de terreno en un radio pequeño (ampliado si hay pocos)."""
+        c = self.terrain[side]
+        xy, zz = c['xy_valid'], c['z_valid']
+        for r in (0.03, 0.06, 0.10):
+            m = (np.abs(xy[:, 0] - x) < r) & (np.abs(xy[:, 1] - y) < r)
+            if m.sum() >= 3:
+                return float(np.median(zz[m])), int(m.sum())
+        return None, 0
+
+    def _sample_tube_T_footprint(self, side, mode, cell_idx, rng, others=()):
+        """Modo footprint: XY dentro de una celda agarrable (frame base_link
+        = world con el robot en el origen; si no, se transforma), z del
+        terreno cacheado. Misma orientación/enterrado que el modo original."""
+        c = self.terrain[side]
+        K = c['K']
+        half = self.footprint_cell / 2.0 + self.p['footprint_cell_jitter']
+        n_cells = len(self.footprint_cells)
+        for attempt in range(25):
+            if attempt >= 5:  # celda sin terreno visible: probar otra
+                cell_idx = rng.randrange(n_cells)
+            bx, by = self.footprint_cells[cell_idx]
+            pb = np.array([bx + rng.uniform(-half, half),
+                           by + rng.uniform(-half, half), 0.0])
+            Tb = self._T_world_base if self._T_world_base is not None else np.eye(4)
+            pw = Tb[:3, :3] @ pb + Tb[:3, 3]
+            zt, n_px = self._terrain_z_at(side, pw[0], pw[1])
+            if zt is None:
+                continue
+            if any(np.hypot(pw[0] - o[0], pw[1] - o[1])
+                   < self.p['footprint_min_tube_sep'] for o in others):
+                continue
+            P = np.array([pw[0], pw[1], zt], dtype=float)
+            if mode == 'floating':
+                R = random_rotation(rng)
+            else:
+                max_t = math.radians(self.p['grounded_max_tilt_deg'])
+                elev = rng.uniform(-max_t, max_t)
+                yaw = rng.uniform(0, 2 * math.pi)
+                axis = np.array([math.cos(yaw) * math.cos(elev),
+                                 math.sin(yaw) * math.cos(elev),
+                                 math.sin(elev)])
+                R = rotation_with_axis(axis, rng.uniform(0, 2 * math.pi))
+            a_z = abs(R[2, 2])
+            lowest = (self.tube_half * a_z
+                      + self.tube_radius * math.sqrt(max(0.0, 1 - a_z * a_z)))
+            z = P[2] + lowest
+            bury = 0.0
+            if mode == 'grounded':
+                z -= rng.uniform(0.0005, 0.002)
+            elif mode == 'buried':
+                bury = rng.uniform(self.p['bury_min_fraction'],
+                                   self.p['bury_max_fraction']) * 2 * self.tube_radius
+                z -= bury
+            elif mode == 'floating':
+                z += rng.uniform(self.p['float_height_min'],
+                                 self.p['float_height_max'])
+            T = make_T(R, [P[0], P[1], z])
+            T_o_t = inv_T(c['T_w_o']) @ T
+            ctr = T_o_t[:3, 3]
+            if ctr[2] < 0.25:
+                continue
+            uc = K[0, 0] * ctr[0] / ctr[2] + K[0, 2]
+            vc = K[1, 1] * ctr[1] / ctr[2] + K[1, 2]
+            m = 24
+            if m <= uc < c['w'] - m and m <= vc < c['h'] - m:
+                dist = float(np.linalg.norm(T[:3, 3] - c['cam']))
+                return T, {'mode': mode, 'bury_depth': bury, 'dist': dist,
+                           'terrain_z': float(P[2]), 'cell': int(cell_idx),
+                           'terrain_px': n_px}
+        return None
 
     def _sample_tube_T(self, side, mode, dist_bin, region_bin, rng):
         """Pose world del tubo según modo (grounded/floating/buried).
@@ -1040,24 +1302,34 @@ class SyntheticDatasetGeneratorV2(Node):
         return placed
 
     def _randomize_light(self):
+        """Difusa del sol aleatoria. Devuelve [r, g, b] aplicado o None si el
+        servicio falló (queda en meta.jsonl y en los descartes)."""
         if self.cli_set_light is None:
-            return
+            return None
         try:
             req = SetLightProperties.Request()
-            req.name = 'sun'
-            g = self.rng.uniform(0.55, 1.0)
+            req.light_name = self.p['light_name']
+            g = self.rng.uniform(self.p['light_intensity_min'],
+                                 self.p['light_intensity_max'])
             req.diffuse.r = g
             req.diffuse.g = g * self.rng.uniform(0.92, 1.0)
             req.diffuse.b = g * self.rng.uniform(0.82, 0.95)
             req.diffuse.a = 1.0
-            req.attenuation_constant = self.rng.uniform(0.6, 1.0)
-            req.attenuation_linear = 0.01
-            req.attenuation_quadratic = 0.0
-            self._call(self.cli_set_light, req, timeout=5.0)
+            base = self._light_base
+            req.attenuation_constant = base.attenuation_constant
+            req.attenuation_linear = base.attenuation_linear
+            req.attenuation_quadratic = base.attenuation_quadratic
+            res = self._call(self.cli_set_light, req, timeout=5.0)
+            if not res.success:
+                raise RuntimeError(res.status_message)
+            return [round(float(v), 4)
+                    for v in (req.diffuse.r, req.diffuse.g, req.diffuse.b)]
         except Exception as e:
+            self._note_discard('light_failed')
             if not self._light_warned:
-                self.get_logger().warning(f'Iluminación no randomizada: {e}')
+                self.get_logger().error(f'Iluminación no randomizada: {e}')
                 self._light_warned = True
+            return None
 
     # ──────────────────────────────────────────────────────────────────────
     # Ground truth por raycasting + depth GT
@@ -1150,8 +1422,17 @@ class SyntheticDatasetGeneratorV2(Node):
         plans = []
         p_heavy = self.p['heavy_occlusion_fraction']
         p_light = max(0.0, self.p['occlusion_fraction'] - p_heavy)
+        footprint = self.p['placement_mode'] == 'footprint'
+        # Estéreo: la referencia es SIEMPRE la izquierda (frame de la nube
+        # estéreo y de los estimadores de pose). En footprint sin estéreo
+        # (tanda de zona de trabajo del dataset YOLO) la cámara va al azar.
+        fixed_left = bool(self.p['stereo_capture'])
+        cell_order = []
+        if footprint:
+            cell_order = list(range(len(self.footprint_cells)))
+            rng.shuffle(cell_order)
         for i in range(n):
-            cam = rng.choice(['left', 'right'])
+            cam = 'left' if fixed_left else rng.choice(['left', 'right'])
             n_rocks = rng.randint(int(self.p['num_rocks_min']),
                                   int(self.p['num_rocks_max']))
             if i in neg_set:
@@ -1177,6 +1458,8 @@ class SyntheticDatasetGeneratorV2(Node):
                 'n_tubes': n_tubes, 'n_rocks': n_rocks,
                 'dist_bin': i % nb,             # ciclos → cobertura uniforme
                 'region_bin': (i * 5) % ncell,  # 5 coprimo con 9: barre celdas
+                # footprint: celda agarrable (orden barajado → cobertura uniforme)
+                'cell': cell_order[i % len(cell_order)] if footprint else -1,
             })
         return plans
 
@@ -1257,12 +1540,25 @@ class SyntheticDatasetGeneratorV2(Node):
                       indent=1)
 
     def _save_sample(self, gid, split, gray, label_lines, cam_entry, gt_entries,
-                     info_entries, meta):
+                     info_entries, meta, right_gray=None, depth_m=None):
         name = f'img_{gid:06d}'
         # Gris replicado a 3 canales (gris→BGR idéntico): Ultralytics y los
         # pesos preentrenados esperan 3 canales.
         bgr = cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
         cv2.imwrite(os.path.join(self.out_dir, 'images', split, name + '.png'), bgr)
+        if right_gray is not None:
+            os.makedirs(os.path.join(self.out_dir, 'images_right', split), exist_ok=True)
+            cv2.imwrite(os.path.join(self.out_dir, 'images_right', split, name + '.png'),
+                        cv2.cvtColor(right_gray, cv2.COLOR_GRAY2BGR))
+            meta['right_file'] = f'images_right/{split}/{name}.png'
+        if depth_m is not None:
+            # PNG 16 bits en milímetros (convenio BOP); inf/nan/fuera de rango → 0
+            d = np.asarray(depth_m, dtype=np.float64) * 1000.0
+            d[~np.isfinite(d)] = 0.0
+            d = np.clip(np.round(d), 0, 65535).astype(np.uint16)
+            os.makedirs(os.path.join(self.out_dir, 'depth', split), exist_ok=True)
+            cv2.imwrite(os.path.join(self.out_dir, 'depth', split, name + '.png'), d)
+            meta['depth_file'] = f'depth/{split}/{name}.png'
         with open(os.path.join(self.out_dir, 'labels', split, name + '.txt'),
                   'w') as f:
             f.write('\n'.join(label_lines) + ('\n' if label_lines else ''))
@@ -1323,6 +1619,15 @@ class SyntheticDatasetGeneratorV2(Node):
         self._setup_services()
         self._prepare_output()
 
+        # Pose de base_link en world (huella y FK del brazo viven en base_link)
+        try:
+            tr = self.tf_buffer.lookup_transform(self.p['world_frame'], 'base_link', Time())
+            q, t = tr.transform.rotation, tr.transform.translation
+            self._T_world_base = make_T(quat_to_mat(q.x, q.y, q.z, q.w), [t.x, t.y, t.z])
+        except Exception as e:
+            self._T_world_base = np.eye(4)
+            log.warning(f'Sin TF world→base_link ({e}); se asume identidad.')
+
         # Brazo a home y pools aparcados ANTES del caché de terreno
         self._command_arm(self.p['arm_home'])
         self._wait_arm_settled(self.p['arm_home'])
@@ -1373,7 +1678,8 @@ class SyntheticDatasetGeneratorV2(Node):
                 plans[generated] = {'kind': 'pos', 'cam': plan['cam'],
                                     'mode': 'grounded', 'occl': 'none',
                                     'n_tubes': 1, 'n_rocks': 2,
-                                    'dist_bin': 0, 'region_bin': 4}
+                                    'dist_bin': 0, 'region_bin': 4,
+                                    'cell': -1}
 
         self._flush_bop()
         self._write_data_yaml()
@@ -1407,8 +1713,16 @@ class SyntheticDatasetGeneratorV2(Node):
                 modes = [plan['mode']] + [
                     rng.choice(['grounded', 'buried'])
                     for _ in range(plan['n_tubes'] - 1)]
+                footprint = self.p['placement_mode'] == 'footprint'
                 for k, mode in enumerate(modes[:len(pool)]):
-                    if k == 0:
+                    if footprint:
+                        cell = (plan.get('cell', -1) if k == 0 else -1)
+                        if cell < 0:
+                            cell = rng.randrange(len(self.footprint_cells))
+                        s = self._sample_tube_T_footprint(
+                            side, mode, cell, rng,
+                            others=[tt[1][:3, 3] for tt in tubes])
+                    elif k == 0:
                         s = self._sample_tube_T(side, mode, plan['dist_bin'],
                                                 plan['region_bin'], rng)
                     else:
@@ -1437,21 +1751,31 @@ class SyntheticDatasetGeneratorV2(Node):
             # Distractores sueltos
             sc = self._scatter_rocks(side, plan['n_rocks'], rng, used_rocks)
             self.active_rocks += sc
+            light = None
             if self.p['randomize_lighting']:
-                self._randomize_light()
+                light = self._randomize_light()
         finally:
             self._unpause()
 
-        # 2) Brazo aleatorio sostenido por el controlador
-        arm_q = self._randomize_arm()
+        # 2) Brazo aleatorio sostenido por el controlador (con holgura por FK
+        #    respecto a los tubos en modo footprint)
+        arm_q = self._randomize_arm([T for _, T, _ in tubes])
 
-        # 3) Captura RGB + depth GT posteriores al asentamiento
+        # 3) Captura RGB + depth GT posteriores al asentamiento (+ imagen
+        #    derecha en modo estéreo: escena estática, cualquier frame
+        #    posterior al asentamiento es válido)
+        stereo = bool(self.p['stereo_capture'])
         t_ready = self.get_clock().now().nanoseconds + int(0.02e9)
         rgb_item = self._wait_fresh(f'{side}_rgb', t_ready,
                                     self.p['capture_timeout_sec'])
         dep_item = self._wait_fresh(f'{side}_depth', t_ready,
                                     self.p['capture_timeout_sec'])
-        if rgb_item is None or dep_item is None:
+        right_item = None
+        if stereo:
+            other = 'right' if side == 'left' else 'left'
+            right_item = self._wait_fresh(f'{other}_rgb', t_ready,
+                                          self.p['capture_timeout_sec'])
+        if rgb_item is None or dep_item is None or (stereo and right_item is None):
             self._note_discard('capture_timeout')
             return None
         gray, depth = rgb_item[1], dep_item[1]
@@ -1528,7 +1852,7 @@ class SyntheticDatasetGeneratorV2(Node):
 
         cam_entry = {
             'cam_K': [round(float(x), 6) for x in K.reshape(-1)],
-            'depth_scale': 1.0,  # depth GT ya en metros
+            'depth_scale': 1.0,  # sin fichero de depth (modo original)
             'cam_R_w2c': [round(float(x), 8) for x in T_o_w[:3, :3].reshape(-1)],
             'cam_t_w2c': [round(float(x), 8) for x in T_o_w[:3, 3]],
         }
@@ -1541,10 +1865,36 @@ class SyntheticDatasetGeneratorV2(Node):
             'n_rocks': len(self.active_rocks),
             'occl_plan': plan.get('occl', 'none'),
             'arm_q': [round(float(v), 4) for v in arm_q],
+            'arm_mode': getattr(self, '_arm_mode', 'random'),
+            'placement': self.p['placement_mode'],
+            'light_diffuse': light,   # None = luz fija del mundo
             'stamp_ns': rgb_item[0],
         }
+        if self.p['placement_mode'] == 'footprint':
+            meta['cells'] = [t[2].get('cell', -1) for t in tubes]
+            meta['terrain_z'] = [round(t[2].get('terrain_z', 0.0), 4) for t in tubes]
+        right_gray = depth_m = None
+        if stereo:
+            # Depth GT de la cámara de referencia (mm, uint16) + imagen del
+            # otro ojo + extrínseca entre ópticos (T_l2r: p_other = R p_ref + t)
+            other = 'right' if side == 'left' else 'left'
+            T_w_other = self._lookup_T_world_optical(other)
+            T_l2r = inv_T(T_w_other) @ T_w_o
+            Ko = self._cam_info[other]['K']
+            cam_entry.update({
+                'depth_scale': 0.001,  # PNG uint16 en mm → ×0.001 = metros
+                'cam_K_right': [round(float(x), 6) for x in Ko.reshape(-1)],
+                'cam_R_l2r': [round(float(x), 8) for x in T_l2r[:3, :3].reshape(-1)],
+                'cam_t_l2r': [round(float(x), 8) for x in T_l2r[:3, 3]],
+                'stereo_ref': side, 'stereo_other': other,
+            })
+            right_gray = right_item[1]
+            depth_m = depth
+            meta.update({'stereo': True, 'stamp_other_ns': right_item[0],
+                         'stamp_depth_ns': dep_item[0]})
         self._save_sample(gid, split, gray, label_lines, cam_entry,
-                          gt_entries, info_entries, meta)
+                          gt_entries, info_entries, meta,
+                          right_gray=right_gray, depth_m=depth_m)
         if plan['kind'] == 'neg':
             summary = f'NEGATIVA cam={side} rocas={len(self.active_rocks)}'
         else:
@@ -1567,10 +1917,27 @@ Claves rápidas:
 - `bop/` con GT 6D estilo BOP **en METROS** (no mm): `cam_R_m2c`, `cam_t_m2c`.
 - `models_info.json` declara `symmetries_continuous` (eje Z) → usar **ADD-S**.
 - `visib_fract` por instancia permite estratificar la evaluación por oclusión.
-- Muestras con visib < 0.10 van SOLO a test, marcadas `hard` en `meta.jsonl`.
+- Con `save_hard_samples=true`, las muestras con visib < 0.10 van SOLO a test,
+  marcadas `hard` en `meta.jsonl`; con `false` se descartan y se regeneran
+  (los splits salen exactos).
+- `meta.light_diffuse` = difusa [r, g, b] del sol aplicada a la escena
+  (`randomize_lighting`); null = luz fija del mundo.
 - `split_map.json` y `meta.jsonl` mapean imagen → split y metadatos por muestra.
 - Si en el futuro se capturan ambos ojos de una misma escena, ambos deben ir
   al MISMO split (aquí no aplica: una sola cámara por escena).
+
+Modo evaluación de pose (`stereo_capture:=true`, `placement_mode:=footprint`):
+- La cámara de referencia es SIEMPRE la izquierda: GT 6D en
+  `navcam_left_optical_frame`, `images/` = ojo izquierdo.
+- `images_right/` = ojo derecho de la MISMA escena (par estéreo para SGBM).
+- `depth/` = depth GT del ojo izquierdo, PNG uint16 en mm
+  (`scene_camera.depth_scale` = 0.001 → metros). Cota superior para ICP.
+- `scene_camera` añade `cam_K_right`, `cam_R_l2r`, `cam_t_l2r`
+  (p_right = R·p_left + t, entre frames ópticos).
+- Los tubos se colocan en la huella agarrable del brazo
+  (`config/grasp_footprint_cells.json`); `meta.cells` guarda la celda.
+- El brazo se aleatoriza con holgura mínima respecto a los tubos (FK) y una
+  fracción de muestras usa la pose home (`meta.arm_mode`).
 """
 
 

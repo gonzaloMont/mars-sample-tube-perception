@@ -51,6 +51,10 @@ install(PROGRAMS
     scripts/visualize_dataset_samples.py          # QA visual del dataset sintético v2
     scripts/dataset_stats.py                      # histogramas de cobertura del dataset v2
     scripts/generate_dataset_multiworld.py        # dataset v2 repartido entre varios mundos
+    scripts/compute_grasp_footprint.py            # huella de agarre (FK) → config/grasp_footprint_cells.json
+    scripts/cache_yolo_detections.py              # YOLO offline → yolo_detections.json (evaluación de pose)
+    scripts/eval_pose_dataset.py                  # evaluación comparable ICP/D2CO sobre el dataset de pose
+    scripts/compare_pose_results.py               # tabla comparativa de corridas de eval_pose_dataset.py
     DESTINATION lib/${PROJECT_NAME}
 )
 
