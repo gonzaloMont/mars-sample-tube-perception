@@ -1,0 +1,43 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>parol6_d2co</name>
+  <version>0.1.0</version>
+  <description>
+    Estimación de pose 6D del tubo mediante D2CO (Direct Directional Chamfer
+    Optimization, Imperoli &amp; Pretto, ICVS 2015) integrada en el pipeline de
+    visión de PAROL6: YOLO aporta el bbox 2D y D2CO registra el modelo CAD
+    contra los bordes de la imagen, sin necesidad de nube de puntos.
+  </description>
+  <maintainer email="montanagonzalo73@gmail.com">gonzalomontanagomez</maintainer>
+  <license>MIT</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <depend>rclcpp</depend>
+  <depend>sensor_msgs</depend>
+  <depend>geometry_msgs</depend>
+  <depend>vision_msgs</depend>
+  <depend>std_msgs</depend>
+  <depend>std_srvs</depend>
+  <depend>cv_bridge</depend>
+  <depend>tf2</depend>
+  <depend>tf2_ros</depend>
+  <depend>tf2_geometry_msgs</depend>
+  <depend>ament_index_cpp</depend>
+
+  <!-- La librería externa libd2co (CMake puro, NO paquete ROS) se compila
+       aparte en parol6_ws/src/alberto_pretto-d2co-75e4ad9dfe90 (lleva
+       COLCON_IGNORE). Este paquete enlaza contra ella; ver README.md.
+       Dependencias del sistema de libd2co: dime, GLEW, GLFW3, OpenMesh,
+       Ceres 1.14 (local en externals/) y OpenCV 4.5.4 del sistema. -->
+
+  <exec_depend>parol6_vision</exec_depend>
+
+  <test_depend>ament_lint_auto</test_depend>
+  <test_depend>ament_lint_common</test_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

@@ -1,0 +1,11 @@
+# Solo artefactos de compilación (rutas ancladas: el install/ de Ceres
+# contiene un lib/ que SÍ se versiona). externals/ se versiona entero:
+# cv_ext es la única copia existente y el Ceres 1.14 es un precompilado
+# difícil de reproducir.
+*.~
+*.kdev4
+/bin/
+/lib/
+/build/
+externals/cv_ext/build/
+externals/cv_ext/lib/

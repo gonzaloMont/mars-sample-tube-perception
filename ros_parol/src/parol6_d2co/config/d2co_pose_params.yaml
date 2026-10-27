@@ -1,0 +1,87 @@
+# ═══════════════════════════════════════════════════════════════════════════
+# d2co_pose_params.yaml — Parámetros del nodo de pose 6D YOLO + D2CO.
+#
+# Cárgalo con:
+#   ros2 run parol6_d2co d2co_pose_estimator_node \
+#       --ros-args --params-file <ruta>/d2co_pose_params.yaml
+# o desde el launch (d2co_pose.launch.py ya lo hace).
+# ═══════════════════════════════════════════════════════════════════════════
+
+d2co_pose_estimator_node:
+  ros__parameters:
+
+    # ── Tópicos de entrada/salida ──────────────────────────────────────────
+    detections_topic:    "/vision/detections"          # bbox 2D de YOLO
+    image_topic:         "/navcam/left/navcam_left/image_raw"
+    camera_info_topic:   "/navcam/left/navcam_left/camera_info"
+    pose_topic:          "/vision/tube_pose"           # PoseStamped (principal)
+    legacy_pose_topic:   "/pose_target_cuaterniones"   # Pose (compat. IK)
+    overlay_debug_topic: "/vision/d2co_overlay"        # imagen debug (RViz)
+
+    # ── Frame de salida ────────────────────────────────────────────────────
+    # Vacío => la pose se publica en el frame óptico de la cámara
+    # (navcam_left_optical_frame). Con "world"/"base_link" se transforma con
+    # TF2 (igual que el nodo ICP).
+    output_frame:    "world"
+    tf_child_frame:  "tube_link_estimated"
+    broadcast_tf:          true
+    publish_legacy_pose:   false   # tube_grasp_pose_node se encarga del legacy
+    publish_debug_overlay: true
+
+    # ── Modelo CAD ─────────────────────────────────────────────────────────
+    # Vacío => share/parol6_d2co/models/mars2020tube_scaled.stl
+    # ¡Debe ser el STL PRE-ESCALADO en metros! (ver make_scaled_tube_stl.py)
+    stl_path:    ""
+    step_meters: 0.002       # paso de muestreo del raster del modelo (m);
+                             # a 512² de trabajo 1 px ≈ 1.7 mm: más fino solo
+                             # añade residuales redundantes al optimizador
+
+    # ── D2CO ───────────────────────────────────────────────────────────────
+    image_scale:          0.5     # la imagen 1024² se procesa a 512²
+    num_directions:       60      # canales de orientación del tensor (paper)
+    tensor_lambda:        6.0     # peso del término direccional λ (paper)
+    optimizer_iterations: 50      # iteraciones máx. de Levenberg-Marquardt
+    edge_detector:        "CANNY" # CANNY | LSD
+    canny_low_threshold:  40
+    canny_ratio:          2
+    dist_threshold:       30.0    # saturación de la DT en px (-1 = sin límite);
+                                  # acotar mejora mucho el ranking de hipótesis
+                                  # en escenas con pocos bordes
+
+    # ── Detección YOLO / ROI ───────────────────────────────────────────────
+    min_score:           0.3
+    target_class:        ""      # "" => cualquier clase
+    bbox_margin_px:      24.0    # margen de la máscara alrededor del bbox
+    detection_max_age_s: 2.5     # ignora detecciones más viejas que esto
+                                 # (el YOLO de serie publica cada ~2 s)
+
+    # ── Hipótesis iniciales ────────────────────────────────────────────────
+    tube_length: 0.186           # m — longitud real del tubo escalado
+    z_min:       0.3             # m — profundidad mínima admitida
+    z_max:       2.0             # m — profundidad máxima admitida
+    # Barrido MULTIPLICATIVO sobre la z estimada del tamaño del bbox. Los bbox
+    # de YOLO suelen ser holgados => z subestimada => sesgo hacia factores >1.
+    z_factors:   [0.8, 1.0, 1.35, 1.8]
+    tilt_angles_deg: [-40.0, -20.0, 0.0, 20.0, 40.0]  # inclinación fuera de plano
+    refine_top_k: 3              # nº de mejores hipótesis a refinar con LM
+    max_avg_dist: 4.5            # umbral de aceptación (distancia media en el
+                                 # tensor saturado a 30 px; los rasgos sin
+                                 # contraste suman ~3 sin implicar
+                                 # desalineación — los priors geométricos son
+                                 # los que garantizan la pose)
+    depth_consistency_weight:  5.0   # prior z ~ fx·L·cosφ/l_px (anti valle
+                                     # plano de profundidad del cilindro)
+    center_consistency_weight: 0.05  # prior centro proyectado ~ centroide de
+                                     # bordes (por píxel de desviación)
+    tracking_max_age_s: 3.0      # vigencia de la última pose como semilla
+    tracking_fast_dist: 0.6      # si la mejor semilla ya puntúa bajo este
+                                 # umbral, se refina solo esa (atajo tracking).
+                                 # Calibrado en sim: ajustes buenos ≤0.6,
+                                 # mínimos locales de escala errónea ≥0.9
+
+    full_search_every:  5        # cada N ciclos se ignora el atajo y se
+                                 # exploran refine_top_k hipótesis (escape de
+                                 # mínimos locales fijados por el tracking)
+
+    # ── Frecuencia de procesado ────────────────────────────────────────────
+    process_rate: 1.0            # Hz
