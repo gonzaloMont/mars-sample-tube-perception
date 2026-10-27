@@ -35,32 +35,54 @@ find_package(OpenMP REQUIRED)
 # cv_ext/types.h (incluida por las cabeceras de d2co) usa tipos de PCL.
 find_package(PCL REQUIRED COMPONENTS common)
 
-# ── Librería externa D2CO (CMake puro, compilada fuera de colcon) ───────────
-# Vendorizada dentro del propio paquete (external/d2co): el repo PAROL6 es
-# autosuficiente. Hay que compilarla UNA vez antes del primer colcon build
-# (ver README.md, sección "Compilación").
-# Se puede sobreescribir con:  colcon build --cmake-args -DD2CO_ROOT=/otra/ruta
-if(NOT DEFINED D2CO_ROOT)
-  set(D2CO_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/external/d2co")
-endif()
+# ── Librería externa D2CO (vendorizada en external/d2co) ────────────────────
+# colcon la compila sola: primero cv_ext (estática) y después libd2co.so,
+# con el OpenCV del sistema y el Ceres 1.14 precompilado de externals/. Son
+# proyectos CMake independientes (no paquetes ROS), así que se construyen
+# como ExternalProject en el build/ de colcon; sus propios CMakeLists dejan
+# las librerías en external/d2co/lib y externals/cv_ext/lib (ignoradas por
+# git). Las dependencias de sistema (OpenMesh, glog, GLFW...) siguen siendo
+# necesarias: ver README.md, "Compilación".
+include(ExternalProject)
+set(D2CO_SRC_DIR "${CMAKE_CURRENT_SOURCE_DIR}/external/d2co")
+set(CV_EXT_SRC_DIR "${D2CO_SRC_DIR}/externals/cv_ext")
+set(CERES_LOCAL_DIR "${D2CO_SRC_DIR}/externals/ceres_1_14/install")
+set(D2CO_INCLUDE_DIR "${D2CO_SRC_DIR}/include")
+set(CV_EXT_INCLUDE_DIR "${CV_EXT_SRC_DIR}/include")
+set(CV_EXT_LIB "${CV_EXT_SRC_DIR}/lib/libcv_ext.a")
+set(D2CO_LIB "${D2CO_SRC_DIR}/lib/libd2co.so")
 
-set(D2CO_INCLUDE_DIR "${D2CO_ROOT}/include")
-set(D2CO_LIB "${D2CO_ROOT}/lib/libd2co.so")
-set(CV_EXT_INCLUDE_DIR "${D2CO_ROOT}/externals/cv_ext/include")
-set(CERES_LOCAL_LIB_DIR "${D2CO_ROOT}/externals/ceres_1_14/install/lib")
+ExternalProject_Add(cv_ext_build
+  SOURCE_DIR ${CV_EXT_SRC_DIR}
+  BINARY_DIR ${CMAKE_CURRENT_BINARY_DIR}/cv_ext
+  # cv_ext incluye cabeceras de Ceres pero su CMakeLists no lo busca: se le
+  # pasan las del Ceres 1.14 vendorizado (las mismas que usa libd2co).
+  CMAKE_ARGS -DCMAKE_BUILD_TYPE=Release -DOpenCV_DIR=${OpenCV_DIR}
+             -DCMAKE_CXX_FLAGS=-I${CERES_LOCAL_DIR}/include
+  BUILD_COMMAND ${CMAKE_COMMAND} --build <BINARY_DIR> --target cv_ext --parallel
+  INSTALL_COMMAND ""
+  BUILD_BYPRODUCTS ${CV_EXT_LIB})
 
-if(NOT EXISTS "${D2CO_LIB}")
-  message(FATAL_ERROR
-    "No se encuentra libd2co.so en ${D2CO_LIB}.\n"
-    "Compila primero la libreria D2CO (ver parol6_d2co/README.md) o pasa "
-    "-DD2CO_ROOT=<ruta> a colcon.")
-endif()
+ExternalProject_Add(d2co_build
+  SOURCE_DIR ${D2CO_SRC_DIR}
+  BINARY_DIR ${CMAKE_CURRENT_BINARY_DIR}/d2co
+  CMAKE_ARGS -DCMAKE_BUILD_TYPE=Release -DOpenCV_DIR=${OpenCV_DIR}
+             -DCeres_DIR=${CERES_LOCAL_DIR}/lib/cmake/Ceres
+             -DCV_EXT_INCLUDE_DIR=${CV_EXT_INCLUDE_DIR} -DCV_EXT_LIBS=${CV_EXT_LIB}
+             # libd2co.so busca libceres a su lado (install/<pkg>/lib)
+             -DCMAKE_BUILD_WITH_INSTALL_RPATH=ON -DCMAKE_INSTALL_RPATH=$ORIGIN
+  BUILD_COMMAND ${CMAKE_COMMAND} --build <BINARY_DIR> --target d2co --parallel
+  INSTALL_COMMAND ""
+  DEPENDS cv_ext_build
+  BUILD_BYPRODUCTS ${D2CO_LIB})
 
 add_executable(d2co_pose_estimator_node src/d2co_pose_estimator_node.cpp)
+add_dependencies(d2co_pose_estimator_node d2co_build)
 
 target_include_directories(d2co_pose_estimator_node PRIVATE
   ${D2CO_INCLUDE_DIR}
   ${CV_EXT_INCLUDE_DIR}
+  ${CERES_LOCAL_DIR}/include
   ${EIGEN3_INCLUDE_DIR}
   ${OpenCV_INCLUDE_DIRS}
   ${PCL_INCLUDE_DIRS})
@@ -68,6 +90,7 @@ target_include_directories(d2co_pose_estimator_node PRIVATE
 # OpenMP: cv_ext/d2co lo usan en cabeceras y libd2co.so lo requiere en enlace.
 target_link_libraries(d2co_pose_estimator_node
   ${D2CO_LIB}
+  ${CERES_LOCAL_DIR}/lib/libceres.so
   ${OpenCV_LIBS}
   OpenMP::OpenMP_CXX)
 
@@ -75,14 +98,18 @@ ament_target_dependencies(d2co_pose_estimator_node
   rclcpp sensor_msgs geometry_msgs vision_msgs std_msgs std_srvs
   cv_bridge tf2 tf2_ros tf2_geometry_msgs ament_index_cpp)
 
-# RPATH: que el ejecutable instalado encuentre libd2co.so y el Ceres 1.14
-# local sin necesidad de LD_LIBRARY_PATH.
+# libd2co.so y el Ceres 1.14 se instalan junto al paquete (install/<pkg>/lib)
+# y el ejecutable (install/<pkg>/lib/<pkg>/) los busca ahí vía RPATH: el
+# install no depende del árbol de fuentes ni de LD_LIBRARY_PATH.
 set_target_properties(d2co_pose_estimator_node PROPERTIES
-  INSTALL_RPATH "${D2CO_ROOT}/lib;${CERES_LOCAL_LIB_DIR}"
+  INSTALL_RPATH "$ORIGIN/.."
   BUILD_WITH_INSTALL_RPATH TRUE)
 
 install(TARGETS d2co_pose_estimator_node
   DESTINATION lib/${PROJECT_NAME})
+install(FILES ${D2CO_LIB} DESTINATION lib)
+install(DIRECTORY ${CERES_LOCAL_DIR}/lib/ DESTINATION lib
+  FILES_MATCHING PATTERN "libceres.so*" PATTERN "cmake" EXCLUDE)
 
 # ── Herramientas offline: STL pre-escalado y test sin Gazebo ────────────────
 install(PROGRAMS

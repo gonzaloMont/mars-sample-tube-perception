@@ -57,10 +57,10 @@ bordes**, que tiene el mismo efecto práctico sobre el coste y la robustez.
 
 ## Compilación
 
-### 1. Librería externa libd2co (una sola vez)
+### 1. Librería externa libd2co (la compila colcon)
 
 La librería está **vendorizada dentro del paquete**, en `external/d2co/`
-(no es un paquete ROS; colcon no entra en ella). Incluye:
+(no es un paquete ROS). Incluye:
 
 - las fuentes de D2CO con los parches de compatibilidad para
   Ubuntu 22.04 / OpenCV 4 / C++14 (`AutoDiff→NumericDiff` en
@@ -71,31 +71,17 @@ La librería está **vendorizada dentro del paquete**, en `external/d2co/`
 - `externals/ceres_1_14/install` — Ceres 1.14 precompilado (el 2.0 del
   sistema es incompatible; su config de CMake es relocatable).
 
-```bash
-cd ~/parol6_ws/src/PAROL6/ros_parol/src/parol6_d2co/external/d2co
-
-# cv_ext (estática)
-cd externals/cv_ext && mkdir -p build && cd build
-cmake -DCMAKE_BUILD_TYPE=Release \
-      -DOpenCV_DIR=/usr/lib/x86_64-linux-gnu/cmake/opencv4 ..
-make -j4
-
-# libd2co.so
-cd ../../.. && mkdir -p build && cd build
-cmake -DCMAKE_BUILD_TYPE=Release \
-      -DOpenCV_DIR=/usr/lib/x86_64-linux-gnu/cmake/opencv4 \
-      -DCeres_DIR=$PWD/../externals/ceres_1_14/install/lib/cmake/Ceres ..
-make -j4 d2co
-```
-
-> El RPATH del nodo se hornea al compilar apuntando a `external/d2co/lib` y
-> al Ceres local: si se mueve el repo de sitio, basta recompilar en orden
-> (cv_ext → libd2co → colcon) para regenerarlo.
+No hay que compilarla a mano: el `CMakeLists.txt` del paquete construye
+`cv_ext` y `libd2co.so` como `ExternalProject` dentro del `build/` de colcon
+(la primera vez tarda unos minutos), e instala `libd2co.so` y `libceres.so*`
+en `install/parol6_d2co/lib`, donde el nodo los encuentra por RPATH
+(`$ORIGIN/..`). Los propios CMakeLists de la librería dejan los binarios en
+`external/d2co/lib` y `externals/cv_ext/lib`, ignorados por git.
 
 > **Importante:** se fija `OpenCV_DIR` al OpenCV 4.5.4 del sistema (el mismo
-> que usa `cv_bridge`). En esta máquina hay un OpenCV 4.14 en `/usr/local`
-> que `find_package` encontraría primero; mezclar dos OpenCV en el mismo
-> proceso corrompe el ABI.
+> que usa `cv_bridge`), también para la librería externa. En esta máquina hay
+> un OpenCV 4.14 en `/usr/local` que `find_package` encontraría primero;
+> mezclar dos OpenCV en el mismo proceso corrompe el ABI.
 
 ### 1b. Dependencias de sistema (OBLIGATORIAS — sin ellas el nodo no arranca)
 
