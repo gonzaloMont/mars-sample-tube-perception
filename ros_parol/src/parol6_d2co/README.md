@@ -244,6 +244,34 @@ ventana GLFW oculta). En sesiones sin display: `xvfb-run -a ros2 launch …`.
 - `TF` → frame `tube_link_estimated`.
 - `ros2 topic echo /vision/tube_pose` para la pose numérica.
 
+## Evaluación sistemática (oct-2026): buen registro 2D, profundidad errónea
+
+La evaluación de referencia está en
+`parol6_vision/results/pose_eval_v3/README.md` (dataset
+`~/parol6_pose_eval_dataset_v3`, harness `eval_pose_dataset.py --estimator
+d2co_node`, umbral ADD-S 18.69 mm). En test (222 instancias, caja GT):
+
+| | con umbral (`max_avg_dist` 4.5) | sin umbral |
+|---|---|---|
+| Cobertura | 48.6 % | 82.9 % |
+| Recall ADD-S | 0.5 % | 0.9 % |
+| Error radial (profundidad) mediano | +446 mm | +285 mm |
+
+En la imagen el registro es mucho mejor que en 3D. Sobre 60 instancias de
+test (`parol6_vision/results/pose_eval_v3/d2co_2d_vs_3d/`):
+- D2CO acierta la dirección del tubo en la imagen (ángulo mediano de 2.4° con
+  el eje real).
+- Pero lo suele proyectar más corto (longitud mediana de 0.73 respecto a la
+  real), porque lo coloca más lejos.
+- Error 2D bidireccional mediano de 7.3 px a 1024 px. El 27.5 % de las poses
+  son un registro 2D completo (< 5 px), y aun así solo 1 de ellas cumple ADD-S
+  (mediana de 143 mm).
+
+Una pose a otra profundidad y con otra inclinación proyecta casi la misma
+silueta: es la ambigüedad de profundidad del caso monocular, no un fallo de
+implementación (revisión del código en ese mismo informe). Las secciones siguientes son validaciones
+anteriores con pocas poses escogidas a mano; quedan como histórico.
+
 ## Validación en simulación (jun-2026, mundo mars_optimized)
 
 Verdad-terreno vía `gz model`; tubo estático; bbox de YOLO real cacheada y

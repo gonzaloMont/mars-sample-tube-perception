@@ -89,7 +89,6 @@ install(PROGRAMS
   scripts/make_scaled_tube_stl.py
   scripts/test_d2co_synthetic.py
   scripts/test_d2co_pose.py
-  scripts/eval_d2co_dataset.py
   DESTINATION lib/${PROJECT_NAME})
 
 install(DIRECTORY launch config models
