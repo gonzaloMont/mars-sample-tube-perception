@@ -589,7 +589,7 @@ CSV_COLS = ['im_id', 'inst', 'split', 'cell', 'mode', 'visib', 'head_visib', 'ar
             'n_tubes', 'dist_gt_m', 'z_gt_m', 'bbox_w', 'bbox_h', 'det_conf', 'det_iou', 'n_dets',
             'pose_ok', 'z_est_m', 'add_s_mm', 'add_s_pass', 'err_trans_mm', 'err_radial_mm',
             'err_lateral_mm', 'err_axis_deg', 'latency_ms', 'fitness', 'rmse_mm', 'n_crop', 'n_scene',
-            'attempts', 'stale', 'msg']
+            'attempts', 'stale', 'msg', 'T_est']   # T_est: pose estimada 3x4 (R|t), fila a fila, metros
 
 
 def _stats(vals):
@@ -811,6 +811,7 @@ def main() -> int:
                                 'err_trans_mm': round(e_tot * 1e3, 3), 'err_radial_mm': round(e_rad * 1e3, 3),
                                 'err_lateral_mm': round(e_lat * 1e3, 3),
                                 'err_axis_deg': round(axis_error_deg(s.R_gt, R_est), 3)})
+                    row['T_est'] = ' '.join(f'{v:.6f}' for v in T[:3, :].flatten())
             rows.append(row)
             if args.overlay_dir and idx < args.overlay_n:
                 save_overlay(os.path.join(args.overlay_dir, f'ov_{s.im_id:06d}_{s.inst}.png'),

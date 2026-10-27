@@ -246,6 +246,16 @@ profundidad, 3 solo en lateral o eje y 1 acierta.
   No lo he aislado, pero es la única dependencia del estado entre llamadas que
   queda con `tracking_max_age_s = 0`.
 
+**Registro 2D frente a 3D y revisión del código** (`d2co_2d_vs_3d/`). Sobre
+60 instancias de test, D2CO acierta en la imagen la dirección del tubo
+(ángulo mediano de 2.4°), pero lo suele proyectar más corto (longitud mediana
+de 0.73 respecto a la real). Solo el 25.5 % de sus poses son un registro 2D
+completo (< 5 px), y de esas solo 1 cumple ADD-S. La revisión del código no
+encuentra ningún error que explique el ~1 %: la causa es la ambigüedad de
+profundidad. Sí encuentra defectos menores, entre ellos un modelo de bordes
+dominado por la cabeza del tubo (con un cilindro simple, el error lateral baja
+a la mitad, pero la profundidad no mejora).
+
 ## 4. Configuración recomendada
 
 ### ICP: config B (defaults del nodo)
@@ -548,3 +558,4 @@ llama a `stats.summary` sobre cada `test/*.csv`.
 | `analysis/` | Scripts (`stats.py` y los de cada fase) y las tablas `.md` que generan; `calidad_sgbm.{py,csv,md}`: error de SGBM en los píxeles del tubo |
 | `anterior/` | Las 6 corridas de la evaluación anterior que usa la comparación, y sus horas de inicio/fin (`README.md` propio; el resto, archivado fuera del repositorio) |
 | `repro/` | La corrida antigua `icp_sgbm_gtbbox` (v1, config A) repetida con el código de hoy y su comparación |
+| `d2co_2d_vs_3d/` | D2CO: error 2D frente a 3D sobre 60 instancias de test (malla y cilindro simple), composición del raster del modelo y revisión del código (`README.md` propio) |

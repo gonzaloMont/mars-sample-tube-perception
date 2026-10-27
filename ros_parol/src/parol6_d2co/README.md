@@ -249,9 +249,9 @@ test (`parol6_vision/results/pose_eval_v3/d2co_2d_vs_3d/`):
   el eje real).
 - Pero lo suele proyectar más corto (longitud mediana de 0.73 respecto a la
   real), porque lo coloca más lejos.
-- Error 2D bidireccional mediano de 7.3 px a 1024 px. El 27.5 % de las poses
+- Error 2D bidireccional mediano de 7.3 px a 1024 px. El 25.5 % de las poses
   son un registro 2D completo (< 5 px), y aun así solo 1 de ellas cumple ADD-S
-  (mediana de 143 mm).
+  (mediana de 114 mm).
 
 Una pose a otra profundidad y con otra inclinación proyecta casi la misma
 silueta: es la ambigüedad de profundidad del caso monocular, no un fallo de
